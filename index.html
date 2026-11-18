@@ -169,9 +169,26 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
     <section id="view-setup" role="tabpanel" aria-labelledby="tab-setup" hidden>
       <form id="form" class="card" novalidate>
         <fieldset>
+          <legend>Find a race</legend>
+          <div class="actions">
+            <a class="btn" href="https://ultrasignup.com/" target="_blank" rel="noopener noreferrer">UltraSignup</a>
+            <a class="btn" href="https://itra.run/Races/RaceCalendar" target="_blank" rel="noopener noreferrer">ITRA calendar</a>
+            <a class="btn" href="https://www.ahotu.com/calendar" target="_blank" rel="noopener noreferrer">Ahotu</a>
+            <a class="btn" href="https://runsignup.com/Races" target="_blank" rel="noopener noreferrer">RunSignup</a>
+          </div>
+          <p class="hint">Open a calendar, pick a race, then copy its name, date, distance and total climb into the fields below.</p>
+          <label class="lbl" for="raceName" style="margin-top:12px">Race name (optional)</label>
+          <input id="raceName" type="text" maxlength="80" autocomplete="off">
+        </fieldset>
+
+        <fieldset>
           <label class="lbl" for="goalKm">Goal distance (km)</label>
           <input id="goalKm" type="number" inputmode="decimal" min="1" max="250" step="0.1">
           <div class="chips" id="goalChips"></div>
+          <label class="lbl" for="elevGain" style="margin-top:12px">Total climb (m, optional)</label>
+          <input id="elevGain" type="number" inputmode="numeric" min="0" max="20000" step="10">
+          <p class="hint num" id="climbHint"></p>
+          <div class="actions"><button type="button" class="btn" id="hillsFromClimb">Set hills from the climb</button></div>
         </fieldset>
 
         <fieldset>
@@ -201,7 +218,7 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
         <fieldset>
           <legend>Terrain</legend>
           <div class="seg" id="segTerrain"></div>
-          <p class="hint">Trail stretches the goal time by 10% and describes long runs by time on feet.</p>
+          <p class="hint">Trail stretches the goal time by at least 10% and describes long runs by time on feet. With a total climb entered, it uses the climb instead when that is larger.</p>
         </fieldset>
 
         <fieldset>
@@ -507,7 +524,7 @@ function stepsKm(steps, paces) {
     if (st.kind === 'repeat') total += st.reps * stepsKm(st.steps, paces);
     else if (st.km != null) total += st.km;
     else {
-      const pace = st.pace ? (st.pace[0] + st.pace[1]) / 2 : st.kind === 'recover' ? paces.easy * 1.1 : paces.interval;
+      const pace = st.pace ? (st.pace[0] + st.pace[1]) / 2 : st.kind === 'recover' ? paces.easy * 1.1 : st.level === 'goal' ? paces.goal : paces.interval;
       total += st.sec / 60 / pace;
     }
   }
@@ -1124,7 +1141,7 @@ function corosCourse(day, paces, terrain) {
   // seconds per km used to turn a timed step into a distance on trail
   const secPerKm = (st) =>
     st.pace ? ((st.pace[0] + st.pace[1]) / 2) * 60
-      : (st.kind === 'recover' ? paces.easy * 1.15 : st.level === 'strides' ? paces.interval * 0.9 : paces.interval) * 60;
+      : (st.kind === 'recover' ? paces.easy * 1.15 : st.level === 'strides' ? paces.interval * 0.9 : st.level === 'goal' ? paces.goal : paces.interval) * 60;
 
   function plain(st, sectionType) {
     const sec = { sectionType };
@@ -1232,7 +1249,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
 
   var DEFAULTS = {
     goalKm: 50, startDate: isoDate(mondayOnOrAfter(todayLocal())), raceDate: '',
-    goal: 'pr', days: 5, longDay: 'Sun', terrain: 'road', hills: 'some',
+    raceName: '', elevGain: '', goal: 'pr', days: 5, longDay: 'Sun', terrain: 'road', hills: 'some',
     currentKm: 45, peakAuto: false, peakKm: 95,
     refSel: '42.195', refCustom: 42.195, refTime: '4:12:00',
     longShare: 30, downEvery: 4, taper: 'auto', remindTime: '06:30', remindLead: 60
@@ -1282,6 +1299,8 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
 
   function writeForm(s) {
     $('goalKm').value = s.goalKm;
+    $('raceName').value = s.raceName || '';
+    $('elevGain').value = s.elevGain || '';
     $('startDate').value = s.startDate;
     $('raceDate').value = s.raceDate;
     seg($('segGoal'), 'goal', [['finish', 'Just finish'], ['pr', 'Beat my best']], s.goal);
@@ -1310,6 +1329,8 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     var rd = parseIso($('raceDate').value), sd = parseIso($('startDate').value);
     return {
       goalKm: parseFloat($('goalKm').value),
+      raceName: $('raceName').value.trim(),
+      elevGain: parseFloat($('elevGain').value) || 0,
       weeks: rd && sd ? weeksBetween(mondayOnOrAfter(sd), rd) : NaN,
       startDate: $('startDate').value,
       raceDate: $('raceDate').value,
@@ -1365,6 +1386,15 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     $('editsHint').textContent = nEdits ? 'Building a plan clears your ' + nEdits + ' skipped or moved run' + (nEdits === 1 ? '' : 's') + '.' : '';
     $('peakWrap').hidden = $('peakAuto').checked;
     (function () {
+      var km = parseFloat($('goalKm').value), gain = parseFloat($('elevGain').value);
+      var h = $('climbHint'), b = $('hillsFromClimb');
+      if (km > 0 && gain > 0) {
+        var c = climbClass(km, gain), f = trailFactorFor(km, gain);
+        h.textContent = Math.round(gain / km) + ' m of climb per km: ' + c[1] + '. Suggested hill setting: ' + c[0] + '. On trail the goal time is stretched by ' + Math.round((f - 1) * 100) + '%. These cut-offs are rules of thumb, not measured values.';
+        b.hidden = false;
+      } else { h.textContent = ''; b.hidden = true; }
+    })();
+    (function () {
       var g = parseFloat($('goalKm').value), cur = parseFloat($('currentKm').value), pk = parseFloat($('peakKm').value);
       var goal = radio('goal') || 'pr', auto = $('peakAuto').checked, msg = [];
       var wk = NaN, rd0 = parseIso($('raceDate').value), sd0 = parseIso($('startDate').value);
@@ -1396,6 +1426,15 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     }
   }
 
+  // ---- climb ----
+  // Rule of thumb: 100 m of climbing costs about as much effort as 1 extra km (the km-effort idea).
+  // A trail goal time is stretched by at least 10%, or by the climb effort when that is larger.
+  function trailFactorFor(km, gainM) { return Math.min(1.6, Math.max(1.1, 1 + gainM / 100 / km)); }
+  function climbClass(km, gainM) {
+    var perKm = gainM / km;
+    return perKm < 10 ? ['none', 'flat'] : perKm <= 25 ? ['some', 'rolling'] : ['lots', 'hilly'];
+  }
+
   // ---- building the plan ----
   function toPlanInput(s) {
     var input = {
@@ -1404,6 +1443,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
       goal: s.goal || 'pr', terrain: s.terrain, hills: s.hills, longDay: s.longDay, raceDay: s.raceDay,
       taper: s.taper === 'auto' ? 'auto' : parseInt(s.taper, 10)
     };
+    if (s.terrain === 'trail' && s.elevGain > 0 && s.goalKm > 0) input.trailFactor = trailFactorFor(s.goalKm, s.elevGain);
     if (!s.peakAuto) input.peakWeeklyKm = s.peakKm;
     return input;
   }
@@ -1432,7 +1472,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     var p = current.plan.paces, s = current.s;
     var fmtKm = function (n) { return (Math.round(n * 10) / 10) + ' km'; };
     return '<div class="card">' +
-      '<h2>' + fmtKm(s.goalKm) + ' ' + (s.terrain === 'trail' ? 'trail' : 'road') + ', race ' + esc(shortDate(current.race)) + '</h2>' +
+      '<h2>' + (s.raceName ? esc(s.raceName) + ', ' : '') + fmtKm(s.goalKm) + ' ' + (s.terrain === 'trail' ? 'trail' : 'road') + ', race ' + esc(shortDate(current.race)) + '</h2>' +
       '<div class="grid">' +
       stat(fmtDuration(p.goalTimeMin), 'projected finish') +
       stat(fmtPace(p.goal), 'goal pace /km') +
@@ -2004,6 +2044,14 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     if (t.id === 'btnIcs' && current) {
       download('run-plan.ics', buildIcs(current.plan, current.startMonday, { time: current.s.remindTime, leadMin: current.s.remindLead, edits: edits }), 'text/calendar');
       flash('Calendar file created. Open it to add the runs.');
+    }
+    if (t.id === 'hillsFromClimb') {
+      var km2 = parseFloat($('goalKm').value), g2 = parseFloat($('elevGain').value);
+      if (km2 > 0 && g2 > 0) {
+        var r = document.querySelector('input[name="hills"][value="' + climbClass(km2, g2)[0] + '"]');
+        if (r) { r.checked = true; syncFormUi(); }
+      }
+      return;
     }
     var chip = t.closest('[data-goal]');
     if (chip) { $('goalKm').value = chip.getAttribute('data-goal'); }
