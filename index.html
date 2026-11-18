@@ -102,6 +102,21 @@ details.week > summary::-webkit-details-marker { display: none; }
 .day { display: flex; gap: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 .day.today { background: color-mix(in srgb, var(--accent) 10%, transparent); margin: 0 -8px; padding: 10px 8px 6px; border-radius: 8px; }
 .day.rest { color: var(--muted); font-size: 14px; padding-top: 8px; }
+.day.extra { border-left: 3px solid var(--muted); }
+.day.extra summary { cursor: pointer; font-size: 15px; }
+.day.extra .xl { margin: 6px 0 0; padding-left: 18px; font-size: 14px; display: flex; flex-direction: column; gap: 4px; }
+.day.extra .xb { margin: 8px 0 0; font-weight: 600; font-size: 13px; }
+.grip { cursor: grab; touch-action: none; user-select: none; color: var(--muted); padding: 0 6px; font-size: 18px; line-height: 1; }
+.day.dropok { outline: 2px dashed var(--muted); outline-offset: 2px; }
+.dragghost { position: fixed; z-index: 50; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: #222; color: #fff; font-size: 13px; opacity: .92; }
+.undo { margin-left: 8px; }
+.ran { margin: 4px 0 0; font-size: 14px; }
+.bars { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.brow { display: grid; grid-template-columns: 52px 1fr 70px; gap: 8px; align-items: center; font-size: 13px; }
+.btrack { position: relative; height: 12px; background: rgba(128,128,128,.2); border-radius: 6px; overflow: hidden; }
+.bfill { position: absolute; left: 0; top: 0; bottom: 0; background: currentColor; opacity: .75; border-radius: 6px; }
+.equip { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 8px; }
+.equip label { font-size: 14px; display: flex; gap: 6px; align-items: center; }
 .day.quality .dtitle { color: var(--hot); }
 .day.race .dtitle { color: var(--race); }
 .chk { flex: 0 0 auto; display: flex; align-items: flex-start; padding-top: 2px; }
@@ -160,12 +175,15 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
 
   <div class="tabs" role="tablist" aria-label="Views">
     <button class="tab" role="tab" id="tab-plan" aria-selected="true" aria-controls="view-plan">Plan</button>
+    <button class="tab" role="tab" id="tab-progress" aria-selected="false" aria-controls="view-progress">Progress</button>
     <button class="tab" role="tab" id="tab-setup" aria-selected="false" aria-controls="view-setup">Setup</button>
     <button class="tab" role="tab" id="tab-guide" aria-selected="false" aria-controls="view-guide">Guide</button>
   </div>
 
   <main>
     <section id="view-plan" role="tabpanel" aria-labelledby="tab-plan" class="wrap" style="gap:14px"></section>
+
+    <section id="view-progress" role="tabpanel" aria-labelledby="tab-progress" hidden class="wrap" style="gap:14px"></section>
 
     <section id="view-setup" role="tabpanel" aria-labelledby="tab-setup" hidden>
       <form id="form" class="card" novalidate>
@@ -214,6 +232,32 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
         <fieldset>
           <label class="lbl" for="longDay">Long run day</label>
           <select id="longDay"></select>
+          <label class="lbl" for="longTarget" style="margin-top:12px">Longest long run, km (optional)</label>
+          <input id="longTarget" type="number" inputmode="decimal" min="5" max="60" step="1" placeholder="Auto">
+          <p class="hint" id="longHint">Leave blank for automatic. The long run grows by about 1.5 km a week up to this ceiling. It never exceeds your share of the week set under Advanced, so a high number needs a high peak week.</p>
+        </fieldset>
+
+        <fieldset>
+          <legend>Strength, mobility and yoga</legend>
+          <label class="lbl" for="strN">Strength sessions per week</label>
+          <select id="strN"></select>
+          <div id="strOpts">
+            <label class="lbl" for="strMin" style="margin-top:12px">Strength session length</label>
+            <select id="strMin"></select>
+            <label class="lbl" for="strLevel" style="margin-top:12px">Lifting experience</label>
+            <select id="strLevel"></select>
+            <div class="lbl" style="margin-top:12px">Equipment you have (none ticked means bodyweight only)</div>
+            <div class="equip" id="strEquip"></div>
+          </div>
+          <label class="lbl" for="mobN" style="margin-top:12px">Stretch and mobility sessions per week</label>
+          <select id="mobN"></select>
+          <label class="lbl" for="mobMin" style="margin-top:12px">Mobility session length</label>
+          <select id="mobMin"></select>
+          <label class="lbl" for="yogaN" style="margin-top:12px">Yoga sessions per week</label>
+          <select id="yogaN"></select>
+          <label class="lbl" for="yogaMin" style="margin-top:12px">Yoga session length</label>
+          <select id="yogaMin"></select>
+          <p class="hint">Two heavy strength sessions a week is the best supported extra for running economy. Stretching, mobility and yoga have no proven injury benefit, so they are optional and kept easy. Sessions skip long-run and race days, avoid the day before a hard run, and shrink in down weeks and the taper.</p>
         </fieldset>
 
         <fieldset>
@@ -347,6 +391,14 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
         </ul>
         <p><b>Convention with little direct evidence.</b> The 10% weekly rule, a down week every fourth week, the 30% long-run cap, and hills early with race-specific work late are standard coaching habits. A 2025 study of 5,205 runners found no link between weekly increases and injury, but did find more injuries when one run was much longer than the longest run of the past month (<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC12421110" target="_blank" rel="noopener noreferrer">study</a>). That is why the long run grows slowly.</p>
         <p><b>My own choices.</b> The 10% minimum trail stretch, counting 100 m of climb as about 1 km of effort, the easy-pace range, the hill-per-km categories, and the watch zones sent to COROS. Treat these as starting points and adjust them.</p>
+      </div>
+
+      <div class="card">
+        <h2>Strength, mobility and yoga</h2>
+        <p><b>Strength is the one with evidence.</b> Meta-analyses of trials find that heavy resistance training improves running economy in distance runners, and that heavy lifting works at least as well as plyometrics (<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC9653533/" target="_blank" rel="noopener noreferrer">review</a>). Individual trials disagree on size of effect (<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC4783109/" target="_blank" rel="noopener noreferrer">example</a>), so treat the benefit as modest. The app uses up to three sessions a week (two is the usual choice), lighter and higher-rep early, heavier and lower-rep later, then fewer sets in down weeks and the taper, and none in race week.</p>
+        <p><b>Stretching and mobility have little evidence.</b> Large reviews, including a Cochrane review of 25 trials, find no reliable effect of stretching on injury, and static stretching right before a run may slightly worsen economy. The routines are short, gentle and optional, for comfort and range of motion.</p>
+        <p><b>Yoga evidence is thin.</b> It is offered as an easy recovery option. The app claims no performance or injury benefit for it.</p>
+        <p><b>My own choices.</b> The exercise picks, set and rep ranges by phase, the placement rules (nothing the day before a hard run), and the light jumping added for experienced lifters in build weeks.</p>
       </div>
 
       <div class="card">
@@ -731,6 +783,7 @@ function generatePlan(input, userRules = {}) {
     currentWeeklyKm,
     refKm,
     refMin,
+    peakLongKm = 0, // optional ceiling for the longest run; 0 means automatic
     terrain = 'road', // 'road' | 'trail'
     hills = 'some', // 'none' | 'some' | 'lots'
     longDay = 'Sun', // weekday of the long run
@@ -759,7 +812,7 @@ function generatePlan(input, userRules = {}) {
     terrainFactor: terrain === 'trail' ? trailFactor : 1,
   });
   const longShare = Math.max(rules.maxLongShare, MIN_LONG_SHARE[daysPerWeek] ?? 0);
-  const longCap = goalKm < 42 ? Math.max(12, goalKm * 0.8) : Infinity;
+  const longCap = peakLongKm > 0 ? peakLongKm : goalKm < 42 ? Math.max(12, goalKm * 0.8) : Infinity;
 
   // Taper length, counting the race week. Meta-analyses favour tapers of up to 3 weeks that
   // cut volume 41-60% and keep intensity and frequency. The longer the race, the longer
@@ -952,7 +1005,7 @@ function generatePlan(input, userRules = {}) {
     input,
     rules,
     paces,
-    meta: { longShare, taperWeeks, peakTarget, growth, startKm, goal, reachedPeak: peakVol, minPeak: minWeekly(goalKm, goal) },
+    meta: { longShare, longTarget: peakLongKm > 0 ? peakLongKm : 0, reachedLong: Math.max(0, ...planWeeks.map((x) => x.longKm || 0)), taperWeeks, peakTarget, growth, startKm, goal, reachedPeak: peakVol, minPeak: minWeekly(goalKm, goal) },
     weeks: planWeeks,
   };
 }
@@ -1162,6 +1215,23 @@ function buildIcs(plan, startMonday, { time = '06:30', leadMin = 60, now = new D
       lines.push('END:VEVENT');
     }
   }
+  for (const w of plan.weeks) {
+    for (const x of w.extras || []) {
+      const date = planDate(startMonday, w.week, x.dayIndex);
+      const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 17, 30);
+      const end = new Date(start.getTime() + x.minutes * 60000);
+      lines.push(
+        'BEGIN:VEVENT',
+        `UID:run-plan-x-w${w.week}-d${x.dayIndex}-${x.kind}-${x.n}-${stamp}@local`,
+        `DTSTAMP:${stamp}`,
+        `DTSTART:${localStamp(start)}`,
+        `DTEND:${localStamp(end)}`,
+        `SUMMARY:${icsEscape(x.title)}`,
+        `DESCRIPTION:${icsEscape(x.blocks.flatMap((b) => b.items.map((i) => `${i.name}: ${i.prescription}`)).join('; '))}`,
+        'END:VEVENT',
+      );
+    }
+  }
   lines.push('END:VCALENDAR');
   return lines.flatMap(fold).join('\r\n') + '\r\n';
 }
@@ -1182,6 +1252,10 @@ function planToText(plan, startMonday, edits = {}) {
       const edit = edits[isoDate(planDate(startMonday, w.week, d))] || {};
       const note = edit.skip ? (edit.skip === 'sick' ? ' [SKIPPED, sick]' : ' [SKIPPED]') : edit.to ? ` [MOVED to ${shortDate(parseIso(edit.to))}]` : '';
       out.push(`  ${DAYS[d]} ${day.km} km  ${day.title}. ${day.detail}${note}`);
+    }
+    for (const x of w.extras || []) {
+      out.push(`  ${DAYS[x.dayIndex]} ${x.title} (${x.minutes} min)`);
+      for (const b of x.blocks) for (const i of b.items) out.push(`      - ${i.name}: ${i.prescription}`);
     }
   }
   return out.join('\n');
@@ -1297,6 +1371,318 @@ function checkCourse(course) {
 
 const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 
+// extras.mjs
+// Strength, stretch and mobility, and yoga sessions that sit beside the running plan.
+// Pure functions: a plan and a few settings in, the same plan out with `extras` on each week.
+//
+// What the research supports (see the Guide tab for sources):
+//  - Heavy strength work, twice a week, is the best supported addition for distance runners.
+//  - Stretching and mobility work has no demonstrated injury benefit. It is kept short and optional.
+//  - Yoga is included as an easy recovery option, with no performance claim.
+
+const LEVEL = { beginner: 1, intermediate: 2, advanced: 3 };
+
+const EQUIPMENT = [
+  ['dumbbell', 'Dumbbells'],
+  ['kettlebell', 'Kettlebell'],
+  ['barbell', 'Barbell'],
+  ['box', 'Box or step'],
+  ['bench', 'Bench'],
+  ['pullup', 'Pull-up bar'],
+  ['bands', 'Resistance bands'],
+  ['swissball', 'Swiss ball'],
+];
+
+// ---------------------------------------------------------------
+// Exercise library. `need` lists what must be available; 'a|b' means either one.
+// Within a pattern the app picks the heaviest option that your equipment and ability allow.
+// kind: 'load' (sets x reps with a load), 'bw' (bodyweight reps), 'time' (hold), 'carry' (distance).
+// ---------------------------------------------------------------
+const LIB = {
+  squat: [
+    { name: 'Barbell back squat', need: ['barbell'], lvl: 3, kind: 'load', cue: 'Brace, sit between the hips, drive up. Stop 2 reps short of failure.' },
+    { name: 'Goblet squat', need: ['dumbbell|kettlebell'], lvl: 1, kind: 'load', cue: 'Hold the weight at your chest. Heels down, knees track over toes.' },
+    { name: 'Bodyweight squat, 3 s lowering', need: [], lvl: 1, kind: 'bw', cue: 'Slow lowering, pause at the bottom, stand up fast.' },
+  ],
+  hinge: [
+    { name: 'Barbell Romanian deadlift', need: ['barbell'], lvl: 3, kind: 'load', cue: 'Soft knees, push hips back, bar close to the legs, flat back.' },
+    { name: 'Dumbbell Romanian deadlift', need: ['dumbbell'], lvl: 2, kind: 'load', cue: 'Soft knees, push hips back, feel the hamstrings load.' },
+    { name: 'Kettlebell deadlift', need: ['kettlebell'], lvl: 1, kind: 'load', cue: 'Hinge at the hips, flat back, stand tall and squeeze the glutes.' },
+    { name: 'Single-leg glute bridge', need: [], lvl: 1, kind: 'bw', perSide: true, cue: 'Drive through the heel, hips level, pause at the top.' },
+  ],
+  split: [
+    { name: 'Bulgarian split squat', need: ['bench|box'], lvl: 2, kind: 'load', perSide: true, cue: 'Rear foot on the bench. Hold dumbbells if you have them.' },
+    { name: 'Reverse lunge', need: [], lvl: 1, kind: 'bw', perSide: true, cue: 'Step back, lower under control, push through the front heel.' },
+  ],
+  stepup: [
+    { name: 'Step-up', need: ['box|bench'], lvl: 1, kind: 'load', perSide: true, cue: 'Whole foot on the box. Drive up without pushing off the back leg.' },
+    { name: 'Reverse lunge', need: [], lvl: 1, kind: 'bw', perSide: true, cue: 'Step back, lower under control, push through the front heel.' },
+  ],
+  singlehinge: [
+    { name: 'Single-leg Romanian deadlift', need: [], lvl: 2, kind: 'load', perSide: true, cue: 'Hips square, reach long. Hold a dumbbell or kettlebell if you have one.' },
+    { name: 'Staggered-stance hip hinge', need: [], lvl: 1, kind: 'bw', perSide: true, cue: 'Light back foot for balance, hinge over the front leg.' },
+  ],
+  hipthrust: [
+    { name: 'Barbell hip thrust', need: ['barbell', 'bench|box'], lvl: 3, kind: 'load', cue: 'Upper back on the bench, ribs down, full hip extension.' },
+    { name: 'Dumbbell hip thrust', need: ['dumbbell', 'bench|box'], lvl: 2, kind: 'load', cue: 'Upper back on the bench, dumbbell across the hips.' },
+    { name: 'Glute bridge', need: [], lvl: 1, kind: 'bw', cue: 'Feet flat, drive the hips up, squeeze and pause.' },
+  ],
+  calf: [
+    { name: 'Single-leg calf raise, 3 s lowering', need: [], lvl: 1, kind: 'bw', perSide: true, cue: 'Full range. Stand on a step edge if you have one. Hold a dumbbell to progress.' },
+  ],
+  pull: [
+    { name: 'Pull-up', need: ['pullup'], lvl: 2, kind: 'bw', cue: 'Start from a full hang, chin over the bar. Use a band for help if needed.' },
+    { name: 'Single-arm dumbbell row', need: ['dumbbell'], lvl: 1, kind: 'load', perSide: true, cue: 'Flat back, pull the elbow to the hip.' },
+    { name: 'Band row', need: ['bands'], lvl: 1, kind: 'bw', cue: 'Pull to the ribs and squeeze the shoulder blades.' },
+    { name: 'Prone Y raise', need: [], lvl: 1, kind: 'bw', cue: 'Lie face down, lift arms in a Y, slow and light.' },
+  ],
+  core1: [
+    { name: 'Swiss ball rollout', need: ['swissball'], lvl: 2, kind: 'bw', cue: 'Roll out slowly with a straight line from knees to head.' },
+    { name: 'Dead bug', need: [], lvl: 1, kind: 'bw', perSide: true, cue: 'Low back stays flat on the floor, move slowly.' },
+  ],
+  core2: [
+    { name: 'Pallof press', need: ['bands'], lvl: 1, kind: 'bw', perSide: true, cue: 'Press out and resist the twist. Hold for a second.' },
+    { name: 'Side plank', need: [], lvl: 1, kind: 'time', perSide: true, cue: 'Hips high, body in one line.' },
+  ],
+  carry: [
+    { name: "Farmer's carry", need: ['dumbbell|kettlebell'], lvl: 1, kind: 'carry', cue: 'Tall posture, heavy weights, short quick steps.' },
+    { name: 'Bird dog', need: [], lvl: 1, kind: 'bw', perSide: true, cue: 'Opposite arm and leg, hold the hips still.' },
+  ],
+  plyo: [
+    { name: 'Pogo hops', need: [], lvl: 2, kind: 'plyo', cue: 'Stiff ankles, quick ground contact, stay tall. Stop if calves feel sore.' },
+  ],
+};
+
+const SESSION_A = ['squat', 'hinge', 'split', 'core1', 'calf', 'carry', 'pull'];
+const SESSION_B = ['singlehinge', 'stepup', 'hipthrust', 'calf', 'pull', 'core2', 'core1'];
+const COUNT = { 30: 4, 45: 6, 60: 7 };
+
+function has(equipSet, need) {
+  return need.every((group) => group.split('|').some((x) => equipSet.has(x)));
+}
+
+function pick(pattern, equipSet, level) {
+  const opts = LIB[pattern].filter((e) => e.lvl <= level && has(equipSet, e.need));
+  // Heaviest allowed option first.
+  opts.sort((a, b) => b.lvl - a.lvl);
+  return opts[0] || LIB[pattern][LIB[pattern].length - 1];
+}
+
+// Sets and reps for the training phase.
+function dose(phase, level) {
+  const lvlSets = level >= 3 ? 1 : 0;
+  switch (phase) {
+    case 'base': return { sets: 3, reps: '10 to 12', bw: '12 to 15', effort: 'moderate, about 3 reps left in the tank' };
+    case 'build': return { sets: 3 + lvlSets, reps: '6 to 8', bw: '10 to 12', effort: 'heavy, about 2 reps left in the tank' };
+    case 'peak': return { sets: 3, reps: '5 to 6', bw: '8 to 10', effort: 'heavy but crisp, about 2 reps left in the tank' };
+    case 'taper': return { sets: 2, reps: '5 to 6', bw: '8 to 10', effort: 'light and fast, stop well short of fatigue' };
+    case 'down': return { sets: 2, reps: '8 to 10', bw: '10 to 12', effort: 'moderate, about 3 reps left in the tank' };
+    default: return { sets: 3, reps: '8 to 10', bw: '10 to 12', effort: 'moderate' };
+  }
+}
+
+function prescription(ex, d) {
+  const side = ex.perSide ? ' per side' : '';
+  if (ex.kind === 'load') return `${d.sets} x ${d.reps}${side}, ${d.effort}`;
+  if (ex.kind === 'bw') return `${d.sets} x ${d.bw}${side}, controlled`;
+  if (ex.kind === 'time') return `${d.sets} x 30 to 40 s${side}`;
+  if (ex.kind === 'carry') return `${d.sets} x 30 to 40 m, heavy`;
+  if (ex.kind === 'plyo') return `2 x 20 contacts`;
+  return `${d.sets} x ${d.reps}`;
+}
+
+function strengthSession({ variant, phase, minutes, equipSet, level, week }) {
+  const dose0 = dose(phase, level);
+  const pats = (variant === 'A' ? SESSION_A : SESSION_B).slice(0, COUNT[minutes] || 6);
+  const items = pats.map((p) => {
+    const ex = pick(p, equipSet, level);
+    return { name: ex.name, prescription: prescription(ex, dose0), cue: ex.cue };
+  });
+  // A little light jumping in the build, for intermediate and advanced athletes, never near the race.
+  if (level >= 2 && (phase === 'build' || phase === 'peak') && variant === 'A') {
+    const ex = LIB.plyo[0];
+    items.push({ name: ex.name, prescription: prescription(ex, dose0), cue: ex.cue });
+  }
+  const titleBase = variant === 'A' ? 'Strength: squat and hinge' : 'Strength: single leg and hips';
+  return {
+    kind: 'strength',
+    title: titleBase,
+    minutes,
+    phase,
+    blocks: [
+      { name: 'Warm up', items: [{ name: '5 min easy cardio, then leg swings 10 per side, 10 bodyweight squats, 10 glute bridges, 10 calf raises', prescription: 'Do 1 to 2 lighter sets before your first heavy lift' }] },
+      { name: 'Main work', items },
+      { name: 'Finish', items: [{ name: '3 to 5 min easy walk', prescription: 'Stretching afterwards is optional. It has no proven injury benefit, so do it only if it feels good' }] },
+    ],
+    note: phase === 'taper' ? 'Taper week: keep the weights moving but stay fresh for the race.' : phase === 'down' ? 'Down week: fewer sets, same exercises.' : `Aim for ${dose0.effort}. Skip or lighten if your legs are heavy from running.`,
+    week,
+  };
+}
+
+// ---------------------------------------------------------------
+// Mobility and yoga sequences
+// ---------------------------------------------------------------
+const MOB = [
+  { title: 'Hips and hamstrings', items: [
+    ['Half-kneeling hip flexor stretch', '45 s per side'], ['90/90 hip switches', '10 each way'], ['Hamstring floss with a strap or towel', '10 per leg'],
+    ['Figure-four glute stretch', '45 s per side'], ['Deep squat hold', '60 s'], ['Cat-cow', '10 slow reps'] ] },
+  { title: 'Calves, ankles and feet', items: [
+    ['Wall calf stretch, knee straight', '45 s per side'], ['Soleus stretch, knee bent', '45 s per side'], ['Ankle rocks (knee over toes)', '10 per side'],
+    ['Short-foot hold', '5 x 10 s per foot'], ['Toe yoga (lift big toe, then small toes)', '10 reps per foot'], ['Single-leg balance', '30 s per leg'] ] },
+  { title: 'Glute and hip stability', items: [
+    ['Clamshell', '2 x 15 per side'], ['Lateral band walk (or side-lying leg raise)', '2 x 12 steps each way'], ['Single-leg balance, eyes open', '3 x 30 s per leg'],
+    ['Bird dog', '2 x 8 per side'], ['Glute bridge with pause', '2 x 10'], ['Dead bug', '2 x 8 per side'] ] },
+  { title: 'Back and shoulders', items: [
+    ['Cat-cow', '10 slow reps'], ['Thread the needle', '8 per side'], ['Open book (side-lying rotation)', '8 per side'],
+    ["Child's pose with side reach", '30 s per side'], ['Doorway chest stretch', '30 s per side'], ['Wall slides', '10 reps'] ] },
+];
+
+function mobilitySession({ idx, minutes, week }) {
+  const seq = MOB[idx % MOB.length];
+  const n = minutes <= 10 ? 4 : minutes <= 15 ? 5 : 6;
+  return {
+    kind: 'mobility',
+    title: `Stretch and mobility: ${seq.title}`,
+    minutes,
+    blocks: [{ name: 'Flow', items: seq.items.slice(0, n).map(([name, prescription]) => ({ name, prescription })) }],
+    note: 'Move gently and skip anything that hurts. Research has not shown stretching prevents injury, so treat this as a comfort and recovery routine.',
+    week,
+  };
+}
+
+const YOGA = [
+  { title: 'Hips and hamstrings flow', items: [
+    ['Cat-cow', '1 min'], ['Downward dog, pedal the feet', '1 min'], ['Low lunge', '1 min per side'], ['Half splits', '1 min per side'],
+    ['Lizard pose', '1 min per side'], ['Pigeon pose', '90 s per side'], ['Supine twist', '1 min per side'], ['Legs up the wall', '3 min'] ] },
+  { title: 'Restorative reset', items: [
+    ["Child's pose", '2 min'], ['Supported bridge (block under hips)', '2 min'], ['Reclined butterfly', '3 min'],
+    ['Supine twist', '2 min per side'], ['Legs up the wall', '5 min'], ['Final rest', '3 min'] ] },
+];
+
+function yogaSession({ idx, minutes, week }) {
+  const seq = YOGA[idx % YOGA.length];
+  const n = minutes <= 30 ? 6 : seq.items.length;
+  return {
+    kind: 'yoga',
+    title: `Yoga: ${seq.title}`,
+    minutes,
+    blocks: [{ name: 'Sequence', items: seq.items.slice(0, n).map(([name, prescription]) => ({ name, prescription })) }],
+    note: 'Easy effort, breathe slowly. Yoga here is for recovery and enjoyment, with no proven effect on running performance.',
+    week,
+  };
+}
+
+// ---------------------------------------------------------------
+// Placement
+// ---------------------------------------------------------------
+function phaseFor(week, lastBuild) {
+  if (week.phase === 'taper' || week.phase === 'race') return 'taper';
+  if (week.phase === 'down') return 'down';
+  const frac = (week.week - 1) / Math.max(1, lastBuild);
+  return frac < 0.3 ? 'base' : frac < 0.75 ? 'build' : 'peak';
+}
+
+function chooseDays(candidates, n, { adjacentOk }) {
+  // candidates: [{d, score}]. Greedy by score, then earlier day. Optionally forbid neighbours.
+  const sorted = candidates.slice().sort((a, b) => b.score - a.score || a.d - b.d);
+  const chosen = [];
+  for (const c of sorted) {
+    if (chosen.length >= n) break;
+    if (!adjacentOk && chosen.some((x) => Math.abs(x.d - c.d) <= 1)) continue;
+    chosen.push(c);
+  }
+  return chosen.map((c) => c.d).sort((a, b) => a - b);
+}
+
+function addExtras(plan, cfg = {}) {
+  const strN = Math.max(0, Math.min(3, cfg.strN ?? 0));
+  const mobN = Math.max(0, Math.min(5, cfg.mobN ?? 0));
+  const yogaN = Math.max(0, Math.min(2, cfg.yogaN ?? 0));
+  const strMin = COUNT[cfg.strMin] ? cfg.strMin : 45;
+  const mobMin = [10, 15, 20].includes(cfg.mobMin) ? cfg.mobMin : 15;
+  const yogaMin = [30, 45].includes(cfg.yogaMin) ? cfg.yogaMin : 30;
+  const level = LEVEL[cfg.strLevel] || 2;
+  const equipSet = new Set(cfg.strEquip || []);
+  const lastBuild = Math.max(1, ...plan.weeks.filter((w) => w.phase === 'build' || w.phase === 'down').map((w) => w.week));
+  let strCount = 0, mobCount = 0, yogaCount = 0;
+
+  const weeks = plan.weeks.map((w) => {
+    const types = w.days.map((d) => d.type);
+    const raceIdx = types.indexOf('race');
+    const phase = phaseFor(w, lastBuild);
+    const isRaceWeek = w.phase === 'race';
+    const extras = [];
+
+    // ----- strength -----
+    if (strN > 0 && !isRaceWeek) {
+      let want = strN;
+      if (phase === 'taper') want = Math.min(want, 1);
+      const cands = [];
+      for (let d = 0; d < 7; d++) {
+        const t = types[d];
+        if (t === 'long' || t === 'race') continue;
+        const next = types[d + 1];
+        if (next === 'long' || next === 'quality' || next === 'race') continue; // keep legs fresh for the hard day
+        if (raceIdx >= 0 && d >= raceIdx - 2) continue;
+        // In a taper week that leads into the race week, stay away from the final days.
+        const score = t === 'quality' ? 3 : t === 'rest' ? 1 : 2;
+        cands.push({ d, score });
+      }
+      const days = chooseDays(cands, want, { adjacentOk: false });
+      days.forEach((d, i) => {
+        const variant = strCount % 2 === 0 ? 'A' : 'B';
+        strCount++;
+        extras.push({ ...strengthSession({ variant, phase, minutes: strMin, equipSet, level, week: w.week }), dayIndex: d, n: i });
+      });
+    }
+    const strDays = new Set(extras.map((e) => e.dayIndex));
+
+    // ----- mobility -----
+    if (mobN > 0) {
+      const cands = [];
+      for (let d = 0; d < 7; d++) {
+        const t = types[d];
+        if (t === 'race') continue;
+        let score = t === 'rest' ? 2 : 1;
+        if (types[d - 1] === 'long') score = 3; // the day after the long run
+        if (strDays.has(d)) score -= 1;
+        cands.push({ d, score });
+      }
+      const days = chooseDays(cands, isRaceWeek ? Math.min(mobN, 2) : mobN, { adjacentOk: true });
+      days.forEach((d, i) => {
+        extras.push({ ...mobilitySession({ idx: mobCount++, minutes: isRaceWeek ? 10 : mobMin, week: w.week }), dayIndex: d, n: i });
+      });
+    }
+
+    // ----- yoga -----
+    if (yogaN > 0 && !isRaceWeek) {
+      const cands = [];
+      for (let d = 0; d < 7; d++) {
+        const t = types[d];
+        if (t === 'race' || strDays.has(d)) continue;
+        let score = t === 'rest' ? 3 : 1;
+        if (types[d - 1] === 'long') score = 3;
+        if (t === 'quality' || t === 'long') score = 0;
+        if (raceIdx >= 0 && d >= raceIdx - 1) continue;
+        cands.push({ d, score });
+      }
+      const days = chooseDays(cands.filter((c) => c.score > 0), yogaN, { adjacentOk: false });
+      days.forEach((d, i) => {
+        extras.push({ ...yogaSession({ idx: yogaCount++, minutes: yogaMin, week: w.week }), dayIndex: d, n: i });
+      });
+    }
+
+    extras.sort((a, b) => a.dayIndex - b.dayIndex || a.kind.localeCompare(b.kind));
+    return { ...w, extras };
+  });
+  return { ...plan, weeks };
+}
+
+// A short summary line for text export.
+function extraLine(e) {
+  return `${e.title} (${e.minutes} min)`;
+}
+
 </script>
 <script>
 (function () {
@@ -1316,6 +1702,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     goalKm: 50, startDate: isoDate(mondayOnOrAfter(todayLocal())), raceDate: '',
     raceName: '', elevGain: '', goal: 'pr', days: 5, longDay: 'Sun', terrain: 'road', hills: 'some',
     currentKm: 45, peakAuto: false, peakKm: 95,
+    longTarget: '', strN: 2, strMin: 45, strLevel: 'intermediate', strEquip: [], mobN: 2, mobMin: 15, yogaN: 0, yogaMin: 30,
     refSel: '42.195', refCustom: 42.195, refTime: '4:12:00',
     longShare: 30, downEvery: 4, taper: 'auto', remindTime: '06:30', remindLead: 60
   };
@@ -1331,7 +1718,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
   // ---- optional sync across devices (your own Supabase project) ----
   // Put your project URL and public key here to skip typing them on each device. Both are safe to publish.
   var SYNC_URL = 'https://xuqgbzluatvmvdzakkfe.supabase.co', SYNC_KEY = 'sb_publishable_oE1APoWl2HXBdmoXuPnixA_rPsrWUtl';
-  var SYNC_KEYS = ['runplan.state.v1', 'runplan.done.v1', 'runplan.edits.v1', 'runplan.push.v1'];
+  var SYNC_KEYS = ['runplan.state.v1', 'runplan.done.v1', 'runplan.edits.v1', 'runplan.push.v1', 'runplan.runs.v1'];
   var sync = Object.assign({ url: '', key: '', code: '', last: '', dirty: 0 }, load('runplan.sync.v1', {}));
   var syncMsg = '', syncTimer = null, syncBusy = false;
   function syncStore() { try { localStorage.setItem('runplan.sync.v1', JSON.stringify(sync)); } catch (e) {} }
@@ -1504,6 +1891,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     fillSelect($('longDay'), WEEKDAY_OPTS, s.longDay);
     seg($('segTerrain'), 'terrain', [['road', 'Road'], ['trail', 'Trail']], s.terrain);
     seg($('segHills'), 'hills', [['none', 'None'], ['some', 'Some'], ['lots', 'Lots']], s.hills);
+    $('longTarget').value = s.longTarget || '';
     $('currentKm').value = s.currentKm;
     $('peakAuto').checked = !!s.peakAuto;
     $('peakKm').value = s.peakKm;
@@ -1513,6 +1901,17 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     $('longShare').value = s.longShare;
     seg($('segDown'), 'downEvery', [[3, '3 weeks'], [4, '4 weeks']], s.downEvery);
     seg($('segTaper'), 'taper', [['auto', 'Auto'], [1, '1'], [2, '2'], [3, '3']], s.taper);
+    var cnt = function (max) { var o = []; for (var i = 0; i <= max; i++) o.push([i, i === 0 ? 'None' : String(i)]); return o; };
+    fillSelect($('strN'), cnt(3), s.strN);
+    fillSelect($('strMin'), [[30, '30 min'], [45, '45 min'], [60, '60 min']], s.strMin);
+    fillSelect($('strLevel'), [['beginner', 'Beginner'], ['intermediate', 'Intermediate'], ['advanced', 'Advanced']], s.strLevel);
+    $('strEquip').innerHTML = EQUIPMENT.map(function (q) {
+      return '<label><input type="checkbox" name="equip" value="' + q[0] + '"' + ((s.strEquip || []).indexOf(q[0]) >= 0 ? ' checked' : '') + '>' + q[1] + '</label>';
+    }).join('');
+    fillSelect($('mobN'), cnt(5), s.mobN);
+    fillSelect($('mobMin'), [[10, '10 min'], [15, '15 min'], [20, '20 min']], s.mobMin);
+    fillSelect($('yogaN'), cnt(2), s.yogaN);
+    fillSelect($('yogaMin'), [[30, '30 min'], [45, '45 min']], s.yogaMin);
     $('remindTime').value = s.remindTime;
     $('remindLead').value = String(s.remindLead);
     syncFormUi();
@@ -1534,6 +1933,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
       goal: radio('goal') || 'pr',
       days: parseInt(radio('days'), 10),
       longDay: $('longDay').value,
+      longTarget: parseFloat($('longTarget').value) || '',
       terrain: radio('terrain'),
       hills: radio('hills'),
       currentKm: parseFloat($('currentKm').value),
@@ -1545,6 +1945,14 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
       longShare: parseFloat($('longShare').value),
       downEvery: parseInt(radio('downEvery'), 10),
       taper: radio('taper') || 'auto',
+      strN: parseInt($('strN').value, 10) || 0,
+      strMin: parseInt($('strMin').value, 10) || 45,
+      strLevel: $('strLevel').value || 'intermediate',
+      strEquip: Array.prototype.map.call(document.querySelectorAll('input[name="equip"]:checked'), function (c) { return c.value; }),
+      mobN: parseInt($('mobN').value, 10) || 0,
+      mobMin: parseInt($('mobMin').value, 10) || 15,
+      yogaN: parseInt($('yogaN').value, 10) || 0,
+      yogaMin: parseInt($('yogaMin').value, 10) || 30,
       remindTime: $('remindTime').value || '06:30',
       remindLead: parseInt($('remindLead').value, 10)
     };
@@ -1572,6 +1980,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     if (!(min > 0)) return 'Enter the time as h:mm:ss, for example 4:12:00.';
     var pace = min / km;
     if (pace < 2.5 || pace > 15) return 'That result works out to ' + fmtPace(pace) + ' per km. Check the distance and time.';
+    if (s.longTarget !== '' && !(s.longTarget >= 5 && s.longTarget <= 60)) return 'Longest long run must be between 5 and 60 km, or blank.';
     if (!(s.longShare >= 20 && s.longShare <= 50)) return 'Max long run must be between 20 and 50 percent.';
     return '';
   }
@@ -1581,6 +1990,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     $('editsHint').hidden = !nEdits;
     $('editsHint').textContent = nEdits ? 'Building a plan clears your ' + nEdits + ' skipped or moved run' + (nEdits === 1 ? '' : 's') + '.' : '';
     $('peakWrap').hidden = $('peakAuto').checked;
+    $('strOpts').hidden = !(parseInt($('strN').value, 10) > 0);
     (function () {
       var km = parseFloat($('goalKm').value), gain = parseFloat($('elevGain').value);
       var h = $('climbHint'), b = $('hillsFromClimb');
@@ -1641,6 +2051,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     };
     if (s.terrain === 'trail' && s.elevGain > 0 && s.goalKm > 0) input.trailFactor = trailFactorFor(s.goalKm, s.elevGain);
     if (!s.peakAuto) input.peakWeeklyKm = s.peakKm;
+    if (s.longTarget > 0) input.peakLongKm = s.longTarget;
     return input;
   }
 
@@ -1657,6 +2068,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
   function buildPlan(s) {
     derive(s);
     var plan = generatePlan(toPlanInput(s), { maxLongShare: s.longShare / 100, downWeekEvery: s.downEvery });
+    plan = addExtras(plan, s);
     var startMonday = mondayOnOrAfter(parseIso(s.startDate));
     current = { plan: plan, startMonday: startMonday, race: planDate(startMonday, s.weeks, DAYS.indexOf(s.raceDay)), s: s };
   }
@@ -1677,6 +2089,8 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
       stat(fmtPace(p.threshold), 'threshold /km') +
       stat(fmtPace(p.interval), 'interval /km') +
       '</div>' +
+      (current.plan.meta.longTarget && current.plan.meta.reachedLong < current.plan.meta.longTarget - 0.5
+        ? '<p class="note"><b>Longest long run is ' + current.plan.meta.reachedLong + ' km, under your ' + current.plan.meta.longTarget + ' km target.</b> It grows about 1.5 km a week and stays within your share of the week. More weeks or a higher peak week would close the gap.</p>' : '') +
       (current.plan.meta.reachedPeak < current.plan.meta.minPeak
         ? '<p class="note"><b>Peak week is ' + Math.round(current.plan.meta.reachedPeak) + ' km, under the ' + current.plan.meta.minPeak + ' km research minimum for this ' + (s.goal === 'finish' ? 'finish' : 'race') + ' goal.</b> More weeks, a higher starting distance or the Just finish goal would close the gap.</p>'
         : '') +
@@ -1793,9 +2207,23 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
       : '<label class="chk"><input type="checkbox" data-date="' + it.orig + '"' + (done[it.orig] ? ' checked' : '') + ' aria-label="Done: ' + esc(shortDate(parseIso(key))) + '"></label>';
     var edit = day.type === 'race' ? '' :
       '<button class="linkbtn" data-act="edit" data-k="' + it.orig + '">' + (editOpen === it.orig ? 'Close' : 'Skip or move') + '</button>';
-    return '<div class="day ' + day.type + (isToday ? ' today' : '') + (it.skip ? ' skipped' : '') + '">' + box +
+    var grip = (day.type === 'race' || it.skip) ? '' : '<span class="grip" data-drag="' + it.orig + '" data-label="' + esc(day.title) + '" title="Drag to another day" aria-hidden="true">&#8942;&#8942;</span>';
+    var m = matchOf(it.orig);
+    var ran = m ? '<p class="ran"><b>Ran</b> ' + m.km.toFixed(1) + ' km in ' + fmtDuration(m.sec / 60) + ', ' + fmtPace(m.sec / 60 / m.km) + '/km' + (m.hr ? ', heart rate ' + Math.round(m.hr) : '') + (m.cad ? ', cadence ' + Math.round(m.cad) : '') + '.' + (runAdvice(it, m) ? ' ' + esc(runAdvice(it, m)) : '') + '</p>' : '';
+    return '<div class="day ' + day.type + (isToday ? ' today' : '') + (it.skip ? ' skipped' : '') + '" data-dkey="' + key + '">' + box + grip +
       '<div><div class="dhead"><b>' + esc(shortDate(parseIso(key))) + '</b><span class="dkm">' + day.km + ' km</span><span class="dtitle">' + esc(day.title) + '</span>' + tags + '</div>' +
-      '<p class="dd">' + esc(day.detail) + '</p>' + edit + (editOpen === it.orig ? editPanel(it) : '') + '</div></div>';
+      '<p class="dd">' + esc(day.detail) + '</p>' + ran + edit + (editOpen === it.orig ? editPanel(it) : '') + '</div></div>';
+  }
+
+  function extraRow(x, key) {
+    var dk = 'x|' + key + '|' + x.kind + '|' + x.n;
+    var body = x.blocks.map(function (b) {
+      return '<p class="xb">' + esc(b.name) + '</p><ul class="xl">' + b.items.map(function (i) {
+        return '<li><b>' + esc(i.name) + '</b>: ' + esc(i.prescription) + (i.cue ? '<br><span class="note">' + esc(i.cue) + '</span>' : '') + '</li>';
+      }).join('') + '</ul>';
+    }).join('');
+    return '<div class="day extra ' + x.kind + '" data-dkey="' + key + '"><label class="chk"><input type="checkbox" data-date="' + esc(dk) + '"' + (done[dk] ? ' checked' : '') + ' aria-label="Done: ' + esc(x.title) + '"></label>' +
+      '<details><summary><b>' + esc(shortDate(parseIso(key))) + '</b> ' + esc(x.title) + ' <span class="dkm">' + x.minutes + ' min</span></summary>' + body + '<p class="note">' + esc(x.note) + '</p></details></div>';
   }
 
   function renderWeeks() {
@@ -1816,9 +2244,11 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
         var key = isoDate(dayDate(w, d));
         var html = (byEff[key] || []).map(function (it) { return runRow(it, key, key === todayKey); }).join('');
         html += (away[key] || []).map(function (it) {
-          return '<div class="day ghost"><span>' + esc(shortDate(parseIso(key))) + ' &middot; ' + esc(it.day.title) + ' moved to ' + esc(shortDate(parseIso(it.eff))) + '</span></div>';
+          return '<div class="day ghost" data-dkey="' + key + '"><span>' + esc(shortDate(parseIso(key))) + ' &middot; ' + esc(it.day.title) + ' moved to ' + esc(shortDate(parseIso(it.eff))) + '</span></div>';
         }).join('');
-        return html || '<div class="day rest"><span>' + esc(shortDate(parseIso(key))) + ' &middot; rest</span></div>';
+        var xh = (w.extras || []).filter(function (x) { return x.dayIndex === d; }).map(function (x) { return extraRow(x, key); }).join('');
+        if (!html) html = '<div class="day rest" data-dkey="' + key + '"><span>' + esc(shortDate(parseIso(key))) + ' &middot; rest</span></div>';
+        return html + xh;
       }).join('');
       var longTxt = w.longKm ? ', long run ' + w.longKm + ' km' : '';
       return '<details class="week"' + (w.week === openWeek ? ' open' : '') + '>' +
@@ -1835,6 +2265,40 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     renderPlan();
     Array.prototype.forEach.call(document.querySelectorAll('details.week'), function (d, i) { d.open = !!open[i]; });
     window.scrollTo(0, y);
+  }
+
+  function renderProgress() {
+    if (!current) return '';
+    var rs = runsState(), todayIso = isoDate(todayLocal()), items = runItems();
+    var doneN = 0, dueN = 0;
+    items.forEach(function (it) { if (it.skip) return; if (it.eff <= todayIso) { dueN++; if (done[it.orig]) doneN++; } });
+    var bars = current.plan.weeks.filter(function (w) { return dayDate(w, 0) <= todayLocal(); }).map(function (w) {
+      var planned = 0, ran = 0;
+      items.forEach(function (it) {
+        if (it.w !== w || it.skip) return;
+        planned += it.day.km;
+        var m = rs.match[it.orig];
+        if (m) ran += m.km; else if (done[it.orig]) ran += it.day.km;
+      });
+      return { w: w.week, planned: planned, ran: ran };
+    });
+    var maxv = Math.max(1, Math.max.apply(null, bars.map(function (b) { return Math.max(b.planned, b.ran); }).concat([1])));
+    var barHtml = bars.length ? '<div class="bars">' + bars.map(function (b) {
+      return '<div class="brow"><span>Wk ' + b.w + '</span><div class="btrack"><div class="bfill" style="width:' + Math.round(b.ran / maxv * 100) + '%"></div></div><span>' + Math.round(b.ran) + ' / ' + Math.round(b.planned) + ' km</span></div>';
+    }).join('') + '</div><p class="note">Distance run out of distance planned each week. Ticked runs without watch data count at their planned distance.</p>' : '<p class="note">Your plan has not started yet.</p>';
+    var list = rs.list, best = function (f) { var b = null; list.forEach(function (x) { if (f(x) && (!b || x.sec / x.km < b.sec / b.km)) b = x; }); return b; };
+    var longest = null; list.forEach(function (x) { if (!longest || x.km > longest.km) longest = x; });
+    var pr = [];
+    if (longest) pr.push(['Longest run', longest.km.toFixed(1) + ' km', longest.date]);
+    [[5, '5 km or longer'], [10, '10 km or longer'], [21, 'Half marathon distance or longer']].forEach(function (t) {
+      var b = best(function (x) { return x.km >= t[0]; });
+      if (b) pr.push(['Fastest average pace, ' + t[1], fmtPace(b.sec / 60 / b.km) + '/km over ' + b.km.toFixed(1) + ' km', b.date]);
+    });
+    var prHtml = pr.length ? '<div class="grid">' + pr.map(function (r) { return stat(r[1], r[0] + ', ' + shortDate(parseIso(r[2]))); }).join('') + '</div><p class="note">These use whole-run averages from the last runs the app has read, not best splits.</p>'
+      : '<p class="note">Connect COROS and tap Read my finished runs (on the Plan tab) to see personal records here.</p>';
+    return '<div class="card"><h2>Consistency</h2><div class="grid">' + stat(doneN + ' of ' + dueN, 'runs done so far') + stat(String(list.length), 'runs read from COROS') + '</div></div>' +
+      '<div class="card"><h2>Weekly distance</h2>' + barHtml + '</div>' +
+      '<div class="card"><h2>Records</h2>' + prHtml + '</div>';
   }
 
   function renderActions() {
@@ -1854,6 +2318,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
 
   function renderPlan() {
     if (!current) return;
+    var mr = runsState(); if (mr.list.length && matchRuns(mr)) runsSave(mr);
     var s = current.s;
     $('subline').textContent = (s.goal === 'finish' ? 'Finish plan, ' : 'PR plan, ') + s.days + ' days a week, ' + s.hills + ' hills, long run ' + s.longDay + ', race ' + longDate(current.race);
     $('view-plan').innerHTML = renderSummary() + '<div id="nextHolder">' + renderNext() + '</div>' + renderChart() + renderWeeks() + renderActions() + renderCoros();
@@ -2128,6 +2593,130 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     });
   }
 
+  // ---- finished runs from COROS ----
+  function runsState() { var r = load('runplan.runs.v1', {}); r.list = r.list || []; r.match = r.match || {}; return r; }
+  function runsSave(r) { save('runplan.runs.v1', r); }
+  function matchOf(orig) { var m = runsState().match[orig]; return m && m.km > 0 && m.sec > 0 ? m : null; }
+
+  // The reply format is not documented, so read it loosely: find arrays of objects that look like activities.
+  function num(v) { var n = typeof v === 'string' ? parseFloat(v) : v; return isFinite(n) ? n : NaN; }
+  function pick(o, names) { for (var i = 0; i < names.length; i++) { if (o[names[i]] != null && o[names[i]] !== '') return o[names[i]]; } return null; }
+  function secOf(v) {
+    if (v == null) return NaN;
+    if (typeof v === 'string' && v.indexOf(':') >= 0) { var m = parseTimeMin(v); return isFinite(m) ? m * 60 : NaN; }
+    return num(v);
+  }
+  function dateOf(o) {
+    var d = pick(o, ['happenDay', 'date', 'day', 'startDate', 'activityDate']);
+    if (d != null) { var s = String(d).replace(/\D/g, ''); if (s.length >= 8) return s.slice(0, 4) + '-' + s.slice(4, 6) + '-' + s.slice(6, 8); }
+    var t = pick(o, ['startTime', 'startTimestamp', 'startTimeLocal', 'startTimeStamp']);
+    if (t != null) {
+      var dt = typeof t === 'number' || /^\d+$/.test(String(t)) ? new Date((num(t) < 1e11 ? num(t) * 1000 : num(t))) : new Date(t);
+      if (isFinite(dt.getTime())) return isoDate(dt);
+    }
+    return '';
+  }
+  function normRun(o) {
+    var date = dateOf(o); if (!date) return null;
+    var kmField = num(pick(o, ['distanceKm']));
+    var dist = kmField > 0 ? kmField : num(pick(o, ['distance', 'totalDistance', 'distanceMeters', 'dist']));
+    if (!(dist > 0)) return null;
+    var km = kmField > 0 || dist < 300 ? dist : dist / 1000;
+    var sec = secOf(pick(o, ['duration', 'totalTime', 'workoutTime', 'movingTime', 'elapsedTime', 'time']));
+    if (!(sec > 0) || sec / 60 / km < 2.5 || sec / 60 / km > 20) return null;
+    var st = pick(o, ['sportType', 'sport', 'sportName', 'activityType', 'type']);
+    var name = String(pick(o, ['name', 'title', 'sportName']) || '');
+    if (typeof st === 'string' && st && !/run|jog|trail/i.test(st)) return null;
+    return {
+      id: String(pick(o, ['labelId', 'activityId', 'id']) || (date + '|' + km.toFixed(2))),
+      date: date, km: km, sec: sec, name: name,
+      hr: num(pick(o, ['avgHr', 'avgHeartRate', 'averageHeartRate', 'heartRate'])) || 0,
+      cad: num(pick(o, ['avgCadence', 'averageCadence', 'cadence'])) || 0
+    };
+  }
+  function findActivities(x, out, depth) {
+    if (depth > 6 || x == null) return out;
+    if (Array.isArray(x)) {
+      x.forEach(function (it) { if (it && typeof it === 'object' && !Array.isArray(it)) { var r = normRun(it); if (r) out.push(r); else findActivities(it, out, depth + 1); } });
+    } else if (typeof x === 'object') { Object.keys(x).forEach(function (k) { findActivities(x[k], out, depth + 1); }); }
+    return out;
+  }
+  function parseRuns(text) {
+    var found = [];
+    var cand = [text];
+    var i = text.indexOf('{'), j = text.indexOf('[');
+    var s = i < 0 ? j : j < 0 ? i : Math.min(i, j);
+    if (s > 0) cand.push(text.slice(s));
+    for (var c = 0; c < cand.length && !found.length; c++) {
+      try { found = findActivities(JSON.parse(cand[c]), [], 0); } catch (e) {}
+    }
+    return found;
+  }
+
+  function corosPull() {
+    var today = todayLocal(), from = addDays(today, -60);
+    clog('Reading your finished runs...');
+    return mcpInit().then(function () { return mcpRpc('tools/list', {}); }).then(function (list) {
+      var tool = (list.tools || []).filter(function (t) { return t.name === 'querySportRecords'; })[0];
+      if (!tool) throw new Error('COROS does not offer querySportRecords here.');
+      var props = (tool.inputSchema && tool.inputSchema.properties) || {}, args = {};
+      Object.keys(props).forEach(function (k) {
+        var low = k.toLowerCase(), type = props[k].type;
+        var fmt = type === 'string' ? function (d) { return d8(isoDate(d)); } : function (d) { return parseInt(d8(isoDate(d)), 10); };
+        if (/start|from|begin/.test(low)) args[k] = fmt(from);
+        else if (/end|to$|until/.test(low)) args[k] = fmt(today);
+        else if (/size|limit|count|num/.test(low)) args[k] = 100;
+        else if (/page/.test(low)) args[k] = 1;
+      });
+      clog('Asking COROS with ' + JSON.stringify(args));
+      return callTool('querySportRecords', args);
+    }).then(function (text) {
+      var runs = parseRuns(text);
+      if (!runs.length) { clog('I could not find any runs in the reply. Raw reply, first 1500 characters:\n' + text.slice(0, 1500)); return; }
+      var r = runsState(), byId = {};
+      r.list.forEach(function (x) { byId[x.id] = x; });
+      runs.forEach(function (x) { byId[x.id] = x; });
+      r.list = Object.keys(byId).map(function (k) { return byId[k]; }).sort(function (p, q) { return p.date < q.date ? -1 : 1; });
+      r.fetched = Date.now();
+      var n = matchRuns(r);
+      runsSave(r);
+      clog('Read ' + runs.length + ' runs. Matched ' + n + ' to your plan.');
+      rerender();
+    });
+  }
+
+  // Match each past plan run to a finished run on its day (or the day it was moved from) within 50% to 160% of its distance.
+  function matchRuns(r) {
+    var n = 0, used = {}, todayIso = isoDate(todayLocal());
+    Object.keys(r.match).forEach(function (k) { used[r.match[k].id] = true; });
+    runItems().forEach(function (it) {
+      if (it.skip || it.eff > todayIso || r.match[it.orig]) return;
+      var best = null;
+      r.list.forEach(function (x) {
+        if (used[x.id] || (x.date !== it.eff && x.date !== it.orig)) return;
+        var ratio = x.km / it.day.km;
+        if (ratio < 0.5 || ratio > 1.6) return;
+        if (!best || Math.abs(1 - ratio) < Math.abs(1 - best.km / it.day.km)) best = x;
+      });
+      if (best) {
+        used[best.id] = true; r.match[it.orig] = best; n++;
+        if (!done[it.orig]) { done[it.orig] = true; save('runplan.done.v1', done); }
+      }
+    });
+    return n;
+  }
+
+  // Plain, cautious feedback from one run. It never changes your paces by itself.
+  function runAdvice(it, m) {
+    var p = current.plan.paces, pace = m.sec / 60 / m.km, t = it.day.type, out = [];
+    if ((t === 'easy' || t === 'short' || t === 'long') && it.day.km) {
+      var tf = t === 'long' ? p.terrainFactor : 1;
+      if (pace < p.easyFast * tf - 0.25) out.push('Faster than the easy range. Slow down so the hard days stay hard.');
+    }
+    if (m.km < it.day.km * 0.85) out.push('Shorter than planned (' + it.day.km + ' km). Fine once in a while, do not make it up.');
+    return out.join(' ');
+  }
+
   // Workouts on the watch that no longer match the plan (skipped or moved after sending).
   // COROS cannot move or delete them from here, so the person removes them in the COROS app.
   function staleList() {
@@ -2156,6 +2745,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     else if (name === 'diag') run = corosDiagnose();
     else if (name === 'pushnext') run = corosPush({ onlyNext: true });
     else if (name === 'push14') run = corosPush({ days: 14 });
+    else if (name === 'pull') run = corosPull();
     else if (name === 'dismiss') { var pd = pushState(); pd.dismissed[btn.getAttribute('data-k')] = true; pushSave(pd); rerender(); return; }
     else if (name === 'copylog') { copyText(corosLog || 'Nothing to copy.'); return; }
     else if (name === 'cancel') { devicePolling = false; deviceInfo = null; rerender(); return; }
@@ -2173,7 +2763,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     var st = corosState(), connected = !!(st.tokens && (st.tokens.refresh || st.tokens.access));
     var region = st.region || 'us';
     var btns = connected
-      ? '<button class="btn primary" data-coros="pushnext">Send my next run to the watch</button><button class="btn" data-coros="push14">Send the next 14 days</button><button class="btn" data-coros="diag">Test connection</button><button class="btn" data-coros="disconnect">Disconnect</button>'
+      ? '<button class="btn primary" data-coros="pushnext">Send my next run to the watch</button><button class="btn" data-coros="pull">Read my finished runs</button><button class="btn" data-coros="push14">Send the next 14 days</button><button class="btn" data-coros="diag">Test connection</button><button class="btn" data-coros="disconnect">Disconnect</button>'
       : '<button class="btn primary" data-coros="connect">Connect COROS</button><button class="btn" data-coros="device">Connect with a code</button>';
     var dev = deviceInfo
       ? '<p class="note">Open <a href="' + esc(deviceInfo.url) + '" target="_blank" rel="noopener">' + esc(deviceInfo.url) + '</a> and enter the code <b>' + esc(deviceInfo.code) + '</b>. This page checks every few seconds. <button class="linkbtn" data-coros="cancel">Cancel</button></p>' : '';
@@ -2208,23 +2798,80 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     if (a === 'reset') { if (edits[k]) { delete edits[k].to; tidy(k); } saveEdits(); editOpen = null; rerender(); return; }
     if (a === 'move') {
       var panel = btn.closest('.panel'), input = panel && panel.querySelector('input[type="date"]');
-      var to = input ? input.value : '';
-      var min = isoDate(current.startMonday), max = isoDate(addDays(current.race, -1));
-      if (!parseIso(to) || to < min || to > max) { flash('Pick a date between ' + shortDate(parseIso(min)) + ' and ' + shortDate(parseIso(max)) + '.'); return; }
-      var cur = effDate(k);
-      if (to === cur) { flash('It is already on that day.'); return; }
-      var other = runItems().filter(function (x) { return x.eff === to && !x.skip && x.orig !== k && x.day.type !== 'race'; })[0];
-      edits[k] = Object.assign(edits[k] || {}, { to: to });
-      if (other) { edits[other.orig] = Object.assign(edits[other.orig] || {}, { to: cur }); tidy(other.orig); }
-      tidy(k);
-      saveEdits(); editOpen = null; rerender();
-      flash(other ? 'Moved to ' + shortDate(parseIso(to)) + ', swapped with ' + other.day.title + '.' : 'Moved to ' + shortDate(parseIso(to)) + '.');
+      var msg = moveRun(k, input ? input.value : '');
+      editOpen = null; rerender();
+      if (msg) flash(msg);
     }
   }
+
+  // Move or swap a run. Returns a message. Keeps a snapshot so Undo can restore the edits.
+  var undoSnap = null, undoTimer = null;
+  function offerUndo(msg) {
+    var el = $('status');
+    el.innerHTML = '';
+    el.appendChild(document.createTextNode(msg));
+    var b = document.createElement('button'); b.className = 'btn undo'; b.type = 'button'; b.textContent = 'Undo'; b.setAttribute('data-undo', '1');
+    el.appendChild(b);
+    clearTimeout(undoTimer);
+    undoTimer = setTimeout(function () { el.textContent = ''; undoSnap = null; }, 9000);
+  }
+  function moveRun(k, to) {
+    var min = isoDate(current.startMonday), max = isoDate(addDays(current.race, -1));
+    if (!parseIso(to) || to < min || to > max) return 'Pick a date between ' + shortDate(parseIso(min)) + ' and ' + shortDate(parseIso(max)) + '.';
+    var cur = effDate(k);
+    if (to === cur) return 'It is already on that day.';
+    undoSnap = JSON.stringify(edits);
+    var other = runItems().filter(function (x) { return x.eff === to && !x.skip && x.orig !== k && x.day.type !== 'race'; })[0];
+    edits[k] = Object.assign(edits[k] || {}, { to: to });
+    if (other) { edits[other.orig] = Object.assign(edits[other.orig] || {}, { to: cur }); tidy(other.orig); }
+    tidy(k);
+    saveEdits();
+    offerUndo(other ? 'Moved to ' + shortDate(parseIso(to)) + ', swapped with ' + other.day.title + '.' : 'Moved to ' + shortDate(parseIso(to)) + '.');
+    return '';
+  }
+
+  // Drag a run by its handle onto another day. Works with mouse and touch.
+  var drag = null;
+  function dayAt(x, y) { var el = document.elementFromPoint(x, y); return el && el.closest ? el.closest('[data-dkey]') : null; }
+  document.addEventListener('pointerdown', function (e) {
+    var g = e.target instanceof Element && e.target.closest('.grip');
+    if (!g || !current) return;
+    e.preventDefault();
+    var gh = document.createElement('div'); gh.className = 'dragghost'; gh.textContent = g.getAttribute('data-label') || 'Run';
+    document.body.appendChild(gh);
+    drag = { k: g.getAttribute('data-drag'), gh: gh, over: null };
+    gh.style.left = (e.clientX + 12) + 'px'; gh.style.top = (e.clientY + 12) + 'px';
+    try { g.setPointerCapture(e.pointerId); } catch (x) {}
+  });
+  document.addEventListener('pointermove', function (e) {
+    if (!drag) return;
+    drag.gh.style.left = (e.clientX + 12) + 'px'; drag.gh.style.top = (e.clientY + 12) + 'px';
+    var d = dayAt(e.clientX, e.clientY);
+    if (drag.over && drag.over !== d) drag.over.classList.remove('dropok');
+    drag.over = d; if (d) d.classList.add('dropok');
+  });
+  function endDrag(e, drop) {
+    if (!drag) return;
+    var d = drop ? dayAt(e.clientX, e.clientY) : null, k = drag.k;
+    if (drag.over) drag.over.classList.remove('dropok');
+    drag.gh.remove(); drag = null;
+    if (d) {
+      var to = d.getAttribute('data-dkey');
+      var msg = moveRun(k, to);
+      rerender();
+      if (msg) flash(msg);
+    }
+  }
+  document.addEventListener('pointerup', function (e) { endDrag(e, true); });
+  document.addEventListener('pointercancel', function (e) { endDrag(e, false); });
 
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!(t instanceof Element)) return;
+    if (t.closest('[data-undo]')) {
+      if (undoSnap != null) { edits = JSON.parse(undoSnap); undoSnap = null; saveEdits(); $('status').textContent = ''; rerender(); flash('Move undone.'); }
+      return;
+    }
     var sb = t.closest('[data-sync]');
     if (sb) { syncAct(sb.getAttribute('data-sync')); return; }
     var cb = t.closest('[data-coros]');
@@ -2285,13 +2932,15 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
   });
 
   function showTab(which) {
-    ['plan', 'setup', 'guide'].forEach(function (v) {
+    if (which === 'progress') $('view-progress').innerHTML = renderProgress();
+    ['plan', 'progress', 'setup', 'guide'].forEach(function (v) {
       $('view-' + v).hidden = v !== which;
       $('tab-' + v).setAttribute('aria-selected', String(v === which));
     });
   }
   $('tab-plan').addEventListener('click', function () { showTab('plan'); });
   $('tab-setup').addEventListener('click', function () { showTab('setup'); });
+  $('tab-progress').addEventListener('click', function () { showTab('progress'); });
   $('tab-guide').addEventListener('click', function () { showTab('guide'); });
   $('guideUrl').textContent = location.protocol === 'file:' ? 'your app link' : location.origin + location.pathname;
 
@@ -2310,6 +2959,8 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     rerender();
     var c = corosState();
     if (c.tokens && pushState().auto) corosPush({ days: 14 }).catch(function (e) { clog('Auto-send failed: ' + e.message); });
+    var rs = runsState();
+    if (c.tokens && (!rs.fetched || Date.now() - rs.fetched > 30 * 60000)) corosPull().catch(function (e) { clog('Could not read finished runs: ' + e.message); });
   });
 })();
 </script>
