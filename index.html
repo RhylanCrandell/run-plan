@@ -1316,7 +1316,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
 
   // ---- optional sync across devices (your own Supabase project) ----
   // Put your project URL and public key here to skip typing them on each device. Both are safe to publish.
-  var SYNC_URL = 'https://xuqgbzluatvmvdzakkfe.supabase.co', SYNC_KEY = '';
+  var SYNC_URL = 'https://xuqgbzluatvmvdzakkfe.supabase.co', SYNC_KEY = 'sb_publishable_oE1APoWl2HXBdmoXuPnixA_rPsrWUtl';
   var SYNC_KEYS = ['runplan.state.v1', 'runplan.done.v1', 'runplan.edits.v1', 'runplan.push.v1'];
   var sync = Object.assign({ url: '', key: '', code: '', last: '', dirty: 0 }, load('runplan.sync.v1', {}));
   var syncMsg = '', syncTimer = null, syncBusy = false;
