@@ -1266,7 +1266,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
 
   // ---- optional sync across devices (your own Supabase project) ----
   // Put your project URL and public key here to skip typing them on each device. Both are safe to publish.
-  var SYNC_URL = '', SYNC_KEY = '';
+  var SYNC_URL = 'https://xuqgbzluatvmvdzakkfe.supabase.co', SYNC_KEY = '';
   var SYNC_KEYS = ['runplan.state.v1', 'runplan.done.v1', 'runplan.edits.v1', 'runplan.push.v1'];
   var sync = Object.assign({ url: '', key: '', code: '', last: '', dirty: 0 }, load('runplan.sync.v1', {}));
   var syncMsg = '', syncTimer = null, syncBusy = false;
@@ -1342,22 +1342,26 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
   }
   function renderSync() {
     var el = $('syncCard'); if (!el) return;
-    var c = syncCfg(), h = '<h2>Sync</h2>';
-    if (!c.url || !c.key) {
-      h += '<p class="note">Saves your plan to your own free Supabase project, so every device shows the same plan. Paste the two values from the project\'s API settings.</p>' +
-        '<label class="lbl" for="syncUrl">Project URL</label><input id="syncUrl" type="url" placeholder="https://abcd.supabase.co" autocomplete="off">' +
-        '<label class="lbl" for="syncKey" style="margin-top:12px">Public key (anon or publishable)</label><input id="syncKey" type="text" autocomplete="off">' +
-        '<div class="actions" style="margin-top:12px"><button type="button" class="btn primary" data-sync="saveCfg">Save</button></div>';
-    } else if (!sync.code) {
-      h += '<p class="note">Make a sync code on this device, then enter it on your other devices.</p>' +
-        '<div class="actions"><button type="button" class="btn primary" data-sync="create">Create a sync code</button></div>' +
-        '<label class="lbl" for="syncCodeIn" style="margin-top:12px">Or enter an existing code</label><input id="syncCodeIn" type="text" autocomplete="off" autocapitalize="characters">' +
-        '<div class="actions" style="margin-top:12px"><button type="button" class="btn" data-sync="use">Use this code</button></div>' +
-        (SYNC_URL ? '' : '<div class="actions" style="margin-top:12px"><button type="button" class="btn" data-sync="resetCfg">Change project</button></div>');
+    var c = syncCfg(), h = '<h2>Sync</h2>', cfgOk = !!(c.url && c.key);
+    if (!sync.code) {
+      h += '<p class="note">Your sync code opens your plan on any device. It is yours alone.</p>' +
+        '<div class="actions"><button type="button" class="btn primary" data-sync="create">Create my sync code</button></div>' +
+        '<label class="lbl" for="syncCodeIn" style="margin-top:12px">Already have a code? Enter it</label><input id="syncCodeIn" type="text" autocomplete="off" autocapitalize="characters">' +
+        '<div class="actions" style="margin-top:12px"><button type="button" class="btn" data-sync="use">Use this code</button></div>';
     } else {
-      h += '<p class="note">Your sync code. Keep it private: anyone with it can read and change your plan.</p><p class="num" style="font-size:18px;font-weight:700;word-break:break-all">' + esc(sync.code) + '</p>' +
-        '<div class="actions"><button type="button" class="btn" data-sync="copy">Copy code</button><button type="button" class="btn" data-sync="now">Sync now</button><button type="button" class="btn" data-sync="off">Turn off on this device</button></div>' +
-        '<p class="note">Your COROS sign-in does not sync. Connect it on each device.</p>';
+      h += '<p class="note">Your sync code. Save it somewhere safe. Anyone with it can read and change your plan.</p>' +
+        '<p class="num" style="font-size:18px;font-weight:700;word-break:break-all">' + esc(sync.code) + '</p>' +
+        '<div class="actions"><button type="button" class="btn" data-sync="copy">Copy code</button>' +
+        (cfgOk ? '<button type="button" class="btn" data-sync="now">Sync now</button>' : '') +
+        '<button type="button" class="btn" data-sync="off">Remove code from this device</button></div>';
+    }
+    if (!cfgOk) {
+      h += '<p class="note" style="margin-top:14px"><b>Not saving to the cloud yet.</b> Paste your project key to turn on syncing.</p>' +
+        (SYNC_URL ? '' : '<label class="lbl" for="syncUrl">Project URL</label><input id="syncUrl" type="url" placeholder="https://abcd.supabase.co" autocomplete="off">') +
+        '<label class="lbl" for="syncKey" style="margin-top:12px">Public key (publishable or anon)</label><input id="syncKey" type="text" autocomplete="off">' +
+        '<div class="actions" style="margin-top:12px"><button type="button" class="btn primary" data-sync="saveCfg">Save key</button></div>';
+    } else {
+      h += '<p class="note">Your COROS sign-in does not sync. Connect it on each device.</p>';
     }
     h += '<p class="note" id="syncMsg" role="status">' + esc(syncMsg) + '</p>';
     el.innerHTML = h;
@@ -1365,24 +1369,28 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
   function syncAct(name) {
     var run = Promise.resolve();
     if (name === 'saveCfg') {
-      var u = $('syncUrl').value.trim(), k = $('syncKey').value.trim();
+      var ue = $('syncUrl'), u = ue ? ue.value.trim() : syncCfg().url, k = $('syncKey').value.trim();
       if (!/^https:\/\/[^\s/]+/.test(u) || k.length < 20) { syncSetMsg('Enter the https project URL and the long public key.'); return; }
-      sync.url = u; sync.key = k; syncStore(); renderSync(); return;
-    }
-    if (name === 'resetCfg') { sync.url = ''; sync.key = ''; syncStore(); renderSync(); return; }
-    if (name === 'create') {
+      if (!SYNC_URL) sync.url = u;
+      sync.key = k; syncStore();
+      if (sync.code && !sync.last) { sync.dirty = Date.now(); syncStore(); run = syncPush(); }
+      else if (sync.code) run = syncPull();
+      else { renderSync(); return; }
+    } else if (name === 'create') {
       sync.code = newCode(); sync.last = ''; sync.dirty = Date.now(); syncStore();
+      if (!(syncCfg().url && syncCfg().key)) { syncSetMsg('Code created. Save it, then paste your key below to start saving to the cloud.'); renderSync(); return; }
       run = syncPush();
     } else if (name === 'use') {
       var code = normCode($('syncCodeIn').value);
       if (code.length !== 26) { syncSetMsg('That code should have 26 letters and digits.'); return; }
+      if (!(syncCfg().url && syncCfg().key)) { syncSetMsg('Paste your project key in the box below first.'); return; }
       sync.code = showCode(code); sync.last = ''; sync.dirty = 0; syncStore();
       syncSetMsg('Looking up your plan...');
       run = syncPull({ mustExist: true });
     } else if (name === 'now') {
       run = syncPush().catch(function () {}).then(function () { return syncPull(); });
     } else if (name === 'copy') { copyText(sync.code); return; }
-    else if (name === 'off') { sync.code = ''; sync.last = ''; sync.dirty = 0; syncStore(); syncSetMsg('Sync is off on this device. Your saved plan stays in the cloud.'); renderSync(); return; }
+    else if (name === 'off') { sync.code = ''; sync.last = ''; sync.dirty = 0; syncStore(); syncSetMsg('Code removed from this device. Your saved plan stays in the cloud.'); renderSync(); return; }
     run.catch(function (e) { syncSetMsg('Sync failed: ' + e.message); }).then(renderSync);
   }
 
