@@ -144,6 +144,8 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
 .panel .prow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .panel input[type="date"] { width: auto; flex: 1 1 150px; }
 .chk .ph { display: block; width: 24px; height: 24px; }
+.stale { display: flex; flex-direction: column; gap: 8px; }
+.stale .prow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
 .logbox { white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, Menlo, monospace; max-height: 320px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px; user-select: text; -webkit-user-select: text; margin: 0; }
 [hidden] { display: none !important; }
 @media (prefers-reduced-motion: no-preference) { details.week { transition: none; } }
@@ -437,6 +439,44 @@ const ceil5 = (x) => Math.ceil(x * 2) / 2;
 // 'step' makes the session a little bigger each time it comes round.
 // ---------------------------------------------------------------
 
+// Structured steps (for the watch). Paces are [fast, slow] in min/km; a step with no pace is run by effort.
+// kinds: warmup, work, recover, cooldown, run; a 'repeat' holds a list of steps run `reps` times.
+const r1 = (x) => Math.round(x * 10) / 10;
+const band = (p, sec = 3) => [p - sec / 60, p + sec / 60];
+const easyBand = (paces) => [paces.easyFast, paces.easySlow];
+const repeat = (reps, steps) => ({ kind: 'repeat', reps, steps });
+// warm-up + core + cool-down, with the cool-down filling the rest of the day's distance
+const withWarmCool = (paces, core, coreKm, warmKm = 2) => (km) => {
+  // On a small day, shrink the warm-up and cool-down so the steps still add up to the day's distance.
+  const rest = Math.max(0.8, km - coreKm);
+  const warm = rest >= warmKm + 0.5 ? warmKm : Math.max(0.4, r1(rest * 0.6));
+  const cool = Math.max(0.4, r1(rest - warm));
+  return [
+    { kind: 'warmup', km: warm, pace: easyBand(paces) },
+    ...core,
+    { kind: 'cooldown', km: cool, pace: easyBand(paces) },
+  ];
+};
+// an easy run, with optional strides at the end
+function easySteps(km, paces, strides = 0) {
+  const run = { kind: 'run', km: strides ? Math.max(1, r1(km - strides * 0.15)) : km, pace: easyBand(paces) };
+  if (!strides) return [run];
+  return [run, repeat(strides, [{ kind: 'work', sec: 20, level: 'strides', effort: 'fast and relaxed' }, { kind: 'recover', sec: 40, effort: 'walk' }])];
+}
+// Rough distance of a step list, to check it against the day's km.
+function stepsKm(steps, paces) {
+  let total = 0;
+  for (const st of steps) {
+    if (st.kind === 'repeat') total += st.reps * stepsKm(st.steps, paces);
+    else if (st.km != null) total += st.km;
+    else {
+      const pace = st.pace ? (st.pace[0] + st.pace[1]) / 2 : st.kind === 'recover' ? paces.easy * 1.1 : paces.interval;
+      total += st.sec / 60 / pace;
+    }
+  }
+  return total;
+}
+
 function qualitySession(q, paces) {
   const P = fmtPace;
   switch (q.kind) {
@@ -446,6 +486,7 @@ function qualitySession(q, paces) {
         title: 'Hill repeats',
         detail: `Warm up 2 km easy. ${reps} x 45 s uphill, hard but controlled (about 5k effort), jog back down. Cool down easy.`,
         workKm: reps * 0.45,
+        steps: withWarmCool(paces, [repeat(reps, [{ kind: 'work', sec: 45, level: 'hill', effort: 'hard uphill' }, { kind: 'recover', sec: 90, effort: 'jog down' }])], reps * 0.45),
       };
     }
     case 'strides': {
@@ -454,6 +495,7 @@ function qualitySession(q, paces) {
         title: 'Strides',
         detail: `Easy run at ${P(paces.easyFast)} to ${P(paces.easySlow)}/km, then ${reps} x 20 s strides: fast and relaxed, not a sprint. Walk back to recover.`,
         workKm: reps * 0.15,
+        steps: (km) => easySteps(km, paces, reps),
       };
     }
     case 'aerobic': {
@@ -462,6 +504,7 @@ function qualitySession(q, paces) {
         title: 'Aerobic intervals',
         detail: `Warm up 2 km easy. ${reps} x 3 min at ${P(paces.interval)}/km (about 5k effort), 2 min easy jog between. Cool down easy.`,
         workKm: reps * (3 / paces.interval + 2 / paces.easy),
+        steps: withWarmCool(paces, [repeat(reps, [{ kind: 'work', sec: 180, level: 'interval', pace: band(paces.interval) }, { kind: 'recover', sec: 120, effort: 'easy jog' }])], reps * (3 / paces.interval + 2 / paces.easy)),
       };
     }
     case 'threshold': {
@@ -470,6 +513,7 @@ function qualitySession(q, paces) {
         title: 'Threshold intervals',
         detail: `Warm up 2 km easy. ${reps} x 8 min at ${P(paces.threshold)}/km (comfortably hard), 2 min easy jog between. Cool down easy.`,
         workKm: reps * (8 / paces.threshold + 2 / paces.easy),
+        steps: withWarmCool(paces, [repeat(reps, [{ kind: 'work', sec: 480, level: 'threshold', pace: band(paces.threshold) }, { kind: 'recover', sec: 120, effort: 'easy jog' }])], reps * (8 / paces.threshold + 2 / paces.easy)),
       };
     }
     case 'tempo': {
@@ -478,6 +522,7 @@ function qualitySession(q, paces) {
         title: 'Tempo run',
         detail: `Warm up 2 km easy. ${mins} min continuous at ${P(paces.threshold)}/km. Cool down easy.`,
         workKm: mins / paces.threshold,
+        steps: withWarmCool(paces, [{ kind: 'work', sec: mins * 60, level: 'threshold', pace: band(paces.threshold) }], mins / paces.threshold),
       };
     }
     case 'racepace': {
@@ -486,6 +531,7 @@ function qualitySession(q, paces) {
         title: 'Goal-pace blocks',
         detail: `Warm up 2 km easy. 2 x ${m} min at goal ${paces.isTrail ? 'trail effort, about ' : 'pace '}${P(paces.goal)}/km, 5 min easy jog between${paces.isTrail ? ', on terrain like the race' : ''}. Cool down easy.`,
         workKm: (2 * m) / paces.goal + 5 / paces.easy,
+        steps: withWarmCool(paces, [repeat(2, [{ kind: 'work', sec: m * 60, level: 'goal', ...(paces.isTrail ? { effort: 'goal trail effort' } : { pace: band(paces.goal, 5) }) }, { kind: 'recover', sec: 300, effort: 'easy jog' }])], (2 * m) / paces.goal + 5 / paces.easy),
       };
     }
     case 'longhills': {
@@ -494,6 +540,7 @@ function qualitySession(q, paces) {
         title: 'Long hill repeats',
         detail: `Warm up 2 km easy. ${reps} x 3 min uphill at threshold effort (hard but steady), jog down to recover. Cool down easy.`,
         workKm: reps * 1.0,
+        steps: withWarmCool(paces, [repeat(reps, [{ kind: 'work', sec: 180, level: 'hill', effort: 'uphill, threshold effort' }, { kind: 'recover', sec: 120, effort: 'jog down' }])], reps * 1.0),
       };
     }
     case 'sharpen':
@@ -501,6 +548,7 @@ function qualitySession(q, paces) {
         title: 'Taper sharpener',
         detail: `Warm up 2 km easy. 2 x 8 min at ${P(paces.threshold)}/km, 3 min easy jog between. Short and crisp, finish fresh.`,
         workKm: (2 * 8) / paces.threshold + 3 / paces.easy,
+        steps: withWarmCool(paces, [repeat(2, [{ kind: 'work', sec: 480, level: 'threshold', pace: band(paces.threshold) }, { kind: 'recover', sec: 180, effort: 'easy jog' }])], (2 * 8) / paces.threshold + 3 / paces.easy),
       };
     case 'down':
     default:
@@ -508,6 +556,7 @@ function qualitySession(q, paces) {
         title: 'Easy run + strides',
         detail: `Down week, no hard work. Easy at ${P(paces.easyFast)} to ${P(paces.easySlow)}/km, then 6 x 20 s relaxed strides.`,
         workKm: 0.9,
+        steps: (km) => easySteps(km, paces, 6),
       };
   }
 }
@@ -725,9 +774,9 @@ function generatePlan(input, userRules = {}) {
       const day = DAYS[d];
       if (role === 'rest') return { day, type: 'rest', km: 0, title: 'Rest', detail: '' };
       if (role === 'quality')
-        return { day, type: 'quality', km: qualityKm, title: q.title, detail: q.detail };
+        return { day, type: 'quality', km: qualityKm, title: q.title, detail: q.detail, steps: q.steps(qualityKm) };
       if (role === 'long') {
-        if (lastLong) return { day, type: lastLong.type, km: longKm, title: lastLong.title, detail: lastLong.detail };
+        if (lastLong) return { day, type: lastLong.type, km: longKm, title: lastLong.title, detail: lastLong.detail, steps: easySteps(longKm, paces) };
         return longRun(day, item.long, paces);
       }
       const km = alloc[i++];
@@ -764,6 +813,8 @@ function longRun(day, km, paces) {
     detail: paces.isTrail
       ? `Run by effort and walk the steep climbs. Plan on roughly ${time} on trail. Practice race-day fueling.`
       : `Steady and easy, about ${fmtPace(paces.easy)}/km (roughly ${time}). Practice race-day fueling.`,
+    // on trail the pace is meaningless, so the long run has a distance and no pace target
+    steps: [paces.isTrail ? { kind: 'run', km } : { kind: 'run', km, pace: easyBand(paces) }],
   };
 }
 
@@ -775,6 +826,7 @@ function easyRun(day, role, km, paces) {
     km,
     title,
     detail: `Conversational, ${fmtPace(paces.easyFast)} to ${fmtPace(paces.easySlow)}/km.`,
+    steps: easySteps(km, paces),
   };
 }
 
@@ -793,6 +845,7 @@ function raceWeek(item, goalKm, paces, raceIdx, longIdx) {
       share: 0.45,
       title: 'Easy run + strides',
       detail: `Easy at ${fmtPace(paces.easyFast)} to ${fmtPace(paces.easySlow)}/km, then 4 x 20 s relaxed strides.`,
+      strides: 4,
     },
   ].filter((s) => s.at >= 0 && !(s.at === 0 && longIdx === 6)); // Monday after a Sunday long run stays a rest day
   // Intensity stays in the taper: the earliest run of race week (at least 3 days out)
@@ -802,23 +855,24 @@ function raceWeek(item, goalKm, paces, raceIdx, longIdx) {
     first.type = 'quality';
     first.title = 'Race-week sharpener';
     first.detail = `Warm up 2 km easy. 3 x 4 min at ${fmtPace(paces.threshold)}/km, 2 min easy jog between. Cool down easy. Keeps the legs sharp while distance drops.`;
+    first.strides = 0;
+    first.sharpener = true;
   }
   const shareSum = slots.reduce((a, s) => a + s.share, 0);
   for (const s of slots) {
-    days[s.at] = {
-      day: DAYS[s.at],
-      type: s.type,
-      // the shakeout stays short however big the week was
-      km: Math.max(2, Math.min(s.type === 'short' ? 6 : Infinity, r5((V * s.share) / shareSum))),
-      title: s.title,
-      detail: s.detail,
-    };
+    // the shakeout stays short however big the week was
+    const km = Math.max(2, Math.min(s.type === 'short' ? 6 : Infinity, r5((V * s.share) / shareSum)));
+    const steps = s.sharpener
+      ? withWarmCool(paces, [repeat(3, [{ kind: 'work', sec: 240, level: 'threshold', pace: band(paces.threshold) }, { kind: 'recover', sec: 120, effort: 'easy jog' }])], 3 * (4 / paces.threshold + 2 / paces.easy))(km)
+      : easySteps(km, paces, s.strides || 0);
+    days[s.at] = { day: DAYS[s.at], type: s.type, km, title: s.title, detail: s.detail, steps };
   }
 
   days[raceIdx] = {
     day: DAYS[raceIdx],
     type: 'race',
     km: goalKm,
+    steps: [paces.isTrail ? { kind: 'run', km: goalKm } : { kind: 'run', km: goalKm, pace: band(paces.goal, 5) }],
     title: 'RACE DAY',
     detail: `Projected ${paces.isTrail ? 'trail effort' : 'goal pace'} ${fmtPace(paces.goal)}/km (${fmtDuration(paces.goalTimeMin)}). Start slower than this.`,
   };
@@ -978,6 +1032,116 @@ function planToText(plan, startMonday, edits = {}) {
   }
   return out.join('\n');
 }
+
+// coros.mjs: turns a day's structured steps into a COROS workout (the "course" that
+// createScheduledWorkout takes). Pure functions, tested in Node, reused inside the page.
+//
+// COROS rules that shape this (from the tool definitions):
+//  - sportType 1 = running, 5 = trail running. Trail workouts allow distance targets, not time.
+//  - sectionType 1 warm-up, 2 training, 3 recovery, 4 cool-down. Repeats are groups of 2/3 sections, no nesting.
+//  - Pace targets are whole seconds per km (120 to 1499). Zones are 1 to 6.
+
+const TRAIL_ZONE = { easy: 2, recover: 1, strides: 5, hill: 5, threshold: 4, interval: 5, goal: 3 };
+// Road steps with no pace target (hills, strides, jogs) get a zone instead.
+const ROAD_ZONE = { easy: { t: 2, z: 2 }, recover: { t: 2, z: 1 }, strides: { t: 2, z: 5 }, hill: { t: 1, z: 5 }, interval: { t: 2, z: 5 }, threshold: { t: 2, z: 4 }, goal: { t: 2, z: 3 } };
+
+const clampPace = (secPerKm) => Math.max(120, Math.min(1499, Math.round(secPerKm)));
+
+function corosCourse(day, paces, terrain) {
+  const trail = terrain === 'trail';
+  // seconds per km used to turn a timed step into a distance on trail
+  const secPerKm = (st) =>
+    st.pace ? ((st.pace[0] + st.pace[1]) / 2) * 60
+      : (st.kind === 'recover' ? paces.easy * 1.15 : st.level === 'strides' ? paces.interval * 0.9 : paces.interval) * 60;
+
+  function plain(st, sectionType) {
+    const sec = { sectionType };
+    if (st.km != null) {
+      sec.targetType = 1;
+      sec.targetValue = Math.max(1, Math.round(st.km * 1000));
+    } else if (trail) {
+      sec.targetType = 1;
+      sec.targetValue = Math.max(10, Math.round((st.sec / secPerKm(st)) * 1000));
+    } else {
+      sec.targetType = 2;
+      sec.targetValue = Math.max(1, Math.round(st.sec));
+    }
+    const level = st.level || (st.kind === 'recover' ? 'recover' : 'easy');
+    if (trail) {
+      sec.intensityType = 3;
+      sec.sectionIntensity = TRAIL_ZONE[level] ?? 2;
+    } else if (st.pace) {
+      sec.intensityType = 2;
+      sec.intensityValueStart = clampPace(st.pace[0] * 60);
+      sec.intensityValueEnd = clampPace(st.pace[1] * 60);
+    } else {
+      const z = ROAD_ZONE[level] ?? ROAD_ZONE.easy;
+      sec.intensityType = z.t;
+      sec.sectionIntensity = z.z;
+    }
+    return sec;
+  }
+
+  const sections = day.steps.map((st) => {
+    if (st.kind === 'repeat') {
+      return {
+        intervalGroup: true,
+        repeats: Math.max(1, Math.min(20, st.reps)),
+        sets: st.steps.map((s) => plain(s, s.kind === 'recover' ? 3 : 2)),
+      };
+    }
+    return plain(st, st.kind === 'warmup' ? 1 : st.kind === 'cooldown' ? 4 : st.kind === 'recover' ? 3 : 2);
+  });
+
+  return {
+    sportType: trail ? 5 : 1,
+    courseName: `${day.title}, ${day.km} km`.slice(0, 100),
+    courseDescription: day.detail || day.title,
+    sections,
+  };
+}
+
+// The rules above as a checker. Returns a list of problems (empty means it should be accepted).
+function checkCourse(course) {
+  const bad = [];
+  const trail = course.sportType === 5;
+  if (![1, 5].includes(course.sportType)) bad.push('sportType');
+  if (!course.courseName || course.courseName.length > 100) bad.push('courseName');
+  if (!course.courseDescription) bad.push('courseDescription');
+  if (!Array.isArray(course.sections) || !course.sections.length) bad.push('no sections');
+  const intensityKeys = ['intensityType', 'sectionIntensity', 'intensityPercentStart', 'intensityPercentEnd', 'intensityValueStart', 'intensityValueEnd'];
+  const checkPlain = (s, allowed) => {
+    if (!allowed.includes(s.sectionType)) bad.push(`sectionType ${s.sectionType}`);
+    if (!Number.isInteger(s.targetType) || ![1, 2, 3, 4].includes(s.targetType)) bad.push('targetType');
+    if (trail && s.targetType === 2) bad.push('time target on trail');
+    if ((s.targetType === 1 || s.targetType === 2) && !(Number.isInteger(s.targetValue) && s.targetValue > 0)) bad.push('targetValue');
+    if (s.intensityType != null) {
+      const hasZone = s.sectionIntensity != null, hasAbs = s.intensityValueStart != null || s.intensityValueEnd != null, hasPct = s.intensityPercentStart != null || s.intensityPercentEnd != null;
+      if (hasZone + hasAbs + hasPct !== 1) bad.push('need exactly one intensity format');
+      if (hasZone && !(Number.isInteger(s.sectionIntensity) && s.sectionIntensity >= 1 && s.sectionIntensity <= 6)) bad.push('zone');
+      if (hasAbs) {
+        if (s.intensityType !== 2) bad.push('absolute range only for pace here');
+        for (const v of [s.intensityValueStart, s.intensityValueEnd]) if (!(Number.isInteger(v) && v >= 120 && v <= 1499)) bad.push(`pace ${v}`);
+      }
+      if (s.intensityType === 3 && !trail) bad.push('effort pace only on trail');
+      if (trail && s.intensityType === 4) bad.push('power');
+    } else if (intensityKeys.some((k) => s[k] != null)) bad.push('intensity fields without intensityType');
+  };
+  for (const s of course.sections || []) {
+    if (s.intervalGroup) {
+      if (!(Number.isInteger(s.repeats) && s.repeats >= 1 && s.repeats <= 20)) bad.push('repeats');
+      if (!s.sets?.length) bad.push('empty group');
+      if (['sectionType', 'targetType', 'targetValue', ...intensityKeys].some((k) => s[k] != null)) bad.push('group has plain fields');
+      for (const m of s.sets || []) {
+        if (m.intervalGroup) bad.push('nested group');
+        else checkPlain(m, [2, 3]);
+      }
+    } else checkPlain(s, [1, 2, 3, 4]);
+  }
+  return bad;
+}
+
+const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}`;
 
 </script>
 <script>
@@ -1574,29 +1738,92 @@ function planToText(plan, startMonday, edits = {}) {
     });
   }
 
-  // Copy the definitions of the workout tools, so the exact input formats are known.
-  function corosToolDetails() {
-    clog('Collecting the workout tool details...');
-    return mcpInit().then(function () { return mcpRpc('tools/list', {}); }).then(function (list) {
-      var want = ['createScheduledWorkout', 'createSingleWorkout', 'scheduleWorkout', 'updateScheduledWorkout', 'queryScheduledWorkoutDetails', 'queryTrainingSchedule', 'queryWorkoutDetails', 'updateWorkoutDetails'];
-      var out = (list.tools || []).filter(function (t) { return want.indexOf(t.name) >= 0; })
-        .map(function (t) { return { name: t.name, description: t.description, inputSchema: t.inputSchema }; });
-      var text = JSON.stringify(out, null, 1);
-      clog('Collected ' + out.length + ' tools (' + text.length + ' characters). Paste them into the chat.');
-      copyText(text);
+  // ---- send workouts to the watch (COROS schedule) ----
+  function pushState() { var p = load('runplan.push.v1', {}); p.pushed = p.pushed || {}; p.dismissed = p.dismissed || {}; return p; }
+  function pushSave(p) { save('runplan.push.v1', p); }
+  function d8(iso) { return iso.replace(/-/g, ''); }
+  function toolText(res) { return ((res && res.content) || []).map(function (c) { return c.text || ''; }).join('\n'); }
+  function parseId(text) { var m = /idInPlan"?\s*[:=]\s*"?(\d{6,})/.exec(text); return m ? m[1] : ''; }
+  function callTool(name, args) {
+    return mcpInit().then(function () { return mcpRpc('tools/call', { name: name, arguments: args }); }).then(function (res) {
+      var t = toolText(res);
+      if (res && res.isError) throw new Error(name + ': ' + t.slice(0, 500));
+      return t;
+    }).catch(function (e) {
+      if (/MCP (400|404)/.test(e.message)) { mcpReady = false; mcpSession = null; }
+      throw e;
     });
   }
+
+  // opts: { onlyNext: true } or { days: 14 }. Sends each run once, updates it if it changed, never moves or deletes.
+  function corosPush(opts) {
+    if (!current) return Promise.resolve();
+    var p = pushState(), today = todayLocal();
+    var until = isoDate(addDays(today, Math.min(90, opts.days || 14))), todayIso = isoDate(today);
+    var items;
+    if (opts.onlyNext) { var n = findNext(); items = n ? [n] : []; }
+    else {
+      items = runItems().filter(function (it) { return !it.skip && !done[it.orig] && it.eff >= todayIso && it.eff <= until; })
+        .sort(function (a, b) { return a.eff < b.eff ? -1 : a.eff > b.eff ? 1 : 0; });
+    }
+    if (!items.length) { clog('Nothing to send.'); return Promise.resolve(); }
+    clog('Sending ' + items.length + ' workout' + (items.length === 1 ? '' : 's') + ' to COROS...');
+    var created = 0, updated = 0, same = 0, errors = 0;
+    return items.reduce(function (chain, it) {
+      return chain.then(function () {
+        var course = corosCourse(it.day, current.plan.paces, current.s.terrain);
+        var sig = JSON.stringify([it.eff, course]), rec = p.pushed[it.orig], date = d8(it.eff);
+        if (rec && rec.date === it.eff && (rec.sig === sig || !rec.id)) { same++; return; }
+        if (rec && rec.date === it.eff) {
+          return callTool('updateScheduledWorkout', { date: date, idInPlan: rec.id, course: course }).then(function (t) {
+            rec.sig = sig; rec.name = course.courseName; var nid = parseId(t); if (nid) rec.id = nid;
+            updated++; pushSave(p); clog('Updated ' + shortDate(parseIso(it.eff)) + ': ' + course.courseName);
+          });
+        }
+        return callTool('createScheduledWorkout', { date: date, course: course }).then(function (t) {
+          var old = rec ? (rec.old || []).concat([{ date: rec.date, name: rec.name }]) : [];
+          var id = parseId(t);
+          p.pushed[it.orig] = { date: it.eff, id: id, sig: sig, name: course.courseName, old: old };
+          created++; pushSave(p);
+          clog('Sent ' + shortDate(parseIso(it.eff)) + ': ' + course.courseName);
+          if (opts.onlyNext || !id) clog('COROS replied: ' + t.slice(0, 600) + (id ? '' : '\nI could not read a workout ID from this reply. Later edits to this workout will need the COROS app.'));
+        });
+      }).catch(function (e) { errors++; clog('Could not send ' + shortDate(parseIso(it.eff)) + ', ' + it.day.title + ': ' + e.message.slice(0, 600)); });
+    }, Promise.resolve()).then(function () {
+      clog('Done. New: ' + created + ', updated: ' + updated + ', already up to date: ' + same + (errors ? ', errors: ' + errors : '') + '.');
+      rerender();
+    });
+  }
+
+  // Workouts on the watch that no longer match the plan (skipped or moved after sending).
+  // COROS cannot move or delete them from here, so the person removes them in the COROS app.
+  function staleList() {
+    var p = pushState(), out = [], todayIso = isoDate(todayLocal());
+    if (!current) return out;
+    Object.keys(p.pushed).forEach(function (orig) {
+      var r = p.pushed[orig], list = (r.old || []).slice(), e = edits[orig] || {};
+      if (e.skip || effDate(orig) !== r.date) list.push({ date: r.date, name: r.name });
+      list.forEach(function (x) {
+        var k = orig + '|' + x.date;
+        if (!p.dismissed[k] && x.date >= todayIso) out.push({ k: k, date: x.date, name: x.name });
+      });
+    });
+    return out.sort(function (a, b) { return a.date < b.date ? -1 : 1; });
+  }
+  function pushedCount() { return Object.keys(pushState().pushed).length; }
 
   function corosHint(e) {
     return /Failed to fetch|NetworkError|Load failed/i.test(e && e.message || '')
       ? '\nThe browser blocked the request. COROS may not allow this step from a web page. Send me this message.' : '';
   }
-  function corosAct(name) {
+  function corosAct(name, btn) {
     var run;
     if (name === 'connect') run = corosConnect();
     else if (name === 'device') run = corosDevice();
     else if (name === 'diag') run = corosDiagnose();
-    else if (name === 'tools') run = corosToolDetails();
+    else if (name === 'pushnext') run = corosPush({ onlyNext: true });
+    else if (name === 'push14') run = corosPush({ days: 14 });
+    else if (name === 'dismiss') { var pd = pushState(); pd.dismissed[btn.getAttribute('data-k')] = true; pushSave(pd); rerender(); return; }
     else if (name === 'copylog') { copyText(corosLog || 'Nothing to copy.'); return; }
     else if (name === 'cancel') { devicePolling = false; deviceInfo = null; rerender(); return; }
     else if (name === 'disconnect') {
@@ -1613,14 +1840,21 @@ function planToText(plan, startMonday, edits = {}) {
     var st = corosState(), connected = !!(st.tokens && (st.tokens.refresh || st.tokens.access));
     var region = st.region || 'us';
     var btns = connected
-      ? '<button class="btn primary" data-coros="tools">Copy workout tool details</button><button class="btn" data-coros="diag">Test connection</button><button class="btn" data-coros="disconnect">Disconnect</button>'
+      ? '<button class="btn primary" data-coros="pushnext">Send my next run to the watch</button><button class="btn" data-coros="push14">Send the next 14 days</button><button class="btn" data-coros="diag">Test connection</button><button class="btn" data-coros="disconnect">Disconnect</button>'
       : '<button class="btn primary" data-coros="connect">Connect COROS</button><button class="btn" data-coros="device">Connect with a code</button>';
     var dev = deviceInfo
       ? '<p class="note">Open <a href="' + esc(deviceInfo.url) + '" target="_blank" rel="noopener">' + esc(deviceInfo.url) + '</a> and enter the code <b>' + esc(deviceInfo.code) + '</b>. This page checks every few seconds. <button class="linkbtn" data-coros="cancel">Cancel</button></p>' : '';
+    var pst = pushState(), stale = connected ? staleList() : [];
+    var staleHtml = stale.length
+      ? '<p class="note"><b>Remove from the COROS app.</b> These workouts are still on your watch calendar but no longer match your plan. COROS does not let this page move or delete them.</p><div class="stale">' +
+        stale.map(function (x) { return '<div class="prow"><span>' + esc(shortDate(parseIso(x.date))) + ': ' + esc(x.name) + '</span><button class="btn" data-coros="dismiss" data-k="' + esc(x.k) + '">Removed</button></div>'; }).join('') + '</div>' : '';
+    var autoHtml = connected
+      ? '<label class="check"><input type="checkbox" id="pushAuto"' + (pst.auto ? ' checked' : '') + '> Send the next 14 days when I open the app</label>' +
+        '<p class="note">' + pushedCount() + ' workout' + (pushedCount() === 1 ? '' : 's') + ' sent so far. Try one run first and check it on your watch.</p>' : '';
     return '<div class="card"><h2>COROS</h2>' +
-      '<p class="note">' + (connected ? 'Connected. Next step is reading your finished runs.' : 'Sign in so the app can read your finished runs. Your sign-in stays in this browser only.') + '</p>' +
+      '<p class="note">' + (connected ? 'Connected. Workouts you send appear on your COROS calendar and sync to the watch.' : 'Sign in so the app can read your finished runs. Your sign-in stays in this browser only.') + '</p>' +
       '<label class="lbl" for="corosRegion">COROS region</label><select id="corosRegion"><option value="us"' + (region === 'us' ? ' selected' : '') + '>North America and elsewhere</option><option value="eu"' + (region === 'eu' ? ' selected' : '') + '>Europe</option></select>' +
-      '<div class="actions">' + btns + '</div>' + dev +
+      '<div class="actions">' + btns + '</div>' + autoHtml + staleHtml + dev +
       '<pre class="logbox" id="corosOut"' + (corosLog ? '' : ' hidden') + '>' + esc(corosLog) + '</pre>' +
       (corosLog ? '<div class="actions"><button class="btn" data-coros="copylog">Copy this output</button></div>' : '') +
       '</div>';
@@ -1659,7 +1893,7 @@ function planToText(plan, startMonday, edits = {}) {
     var t = e.target;
     if (!(t instanceof Element)) return;
     var cb = t.closest('[data-coros]');
-    if (cb) { corosAct(cb.getAttribute('data-coros')); return; }
+    if (cb) { corosAct(cb.getAttribute('data-coros'), cb); return; }
     var act = t.closest('[data-act]');
     if (act && current) { handleAct(act); return; }
     var d = t.closest('[data-done]');
@@ -1680,6 +1914,7 @@ function planToText(plan, startMonday, edits = {}) {
 
   document.addEventListener('change', function (e) {
     var t = e.target;
+    if (t && t.id === 'pushAuto') { var pa = pushState(); pa.auto = t.checked; pushSave(pa); return; }
     if (t && t.id === 'corosRegion') { var cs = corosState(); cs.region = t.value; corosSave(cs); return; }
     if (t && t.matches && t.matches('input[data-date]')) {
       var key = t.getAttribute('data-date');
@@ -1723,7 +1958,11 @@ function planToText(plan, startMonday, edits = {}) {
     writeForm(state); buildPlan(state);
   }
   renderPlan();
-  corosReturn().then(function () { rerender(); });
+  corosReturn().then(function () {
+    rerender();
+    var c = corosState();
+    if (c.tokens && pushState().auto) corosPush({ days: 14 }).catch(function (e) { clog('Auto-send failed: ' + e.message); });
+  });
 })();
 </script>
 </body>
