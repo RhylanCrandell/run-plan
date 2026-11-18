@@ -136,6 +136,15 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
 .check { display: flex; align-items: center; gap: 10px; min-height: 44px; font-weight: 500; }
 .check input { width: 22px; height: 22px; accent-color: var(--accent); }
 .err { color: var(--race); font-weight: 600; }
+.tag { font-size: 12px; font-weight: 600; color: var(--muted); border: 1px solid var(--line); border-radius: 99px; padding: 1px 8px; align-self: center; }
+.day.skipped .dkm, .day.skipped .dtitle, .day.skipped .dd { text-decoration: line-through; color: var(--muted); }
+.day.ghost { color: var(--muted); font-size: 14px; padding-top: 8px; }
+.linkbtn { background: none; border: 0; color: var(--ink); font: 600 14px var(--font-body); padding: 6px 0; min-height: 36px; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+.panel { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.panel .prow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.panel input[type="date"] { width: auto; flex: 1 1 150px; }
+.chk .ph { display: block; width: 24px; height: 24px; }
+.logbox { white-space: pre-wrap; word-break: break-word; font: 12px/1.45 ui-monospace, Menlo, monospace; max-height: 320px; overflow: auto; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px; user-select: text; -webkit-user-select: text; margin: 0; }
 [hidden] { display: none !important; }
 @media (prefers-reduced-motion: no-preference) { details.week { transition: none; } }
 </style>
@@ -264,6 +273,7 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
         </fieldset>
 
         <p class="err" id="formError" role="alert" hidden></p>
+        <p class="hint" id="editsHint" hidden></p>
         <button type="submit" class="btn primary">Build plan</button>
       </form>
     </section>
@@ -905,7 +915,7 @@ function utcStamp(d) {
 
 // One event per run, with an alert `leadMin` minutes before. Times are "floating"
 // (no time zone), so they stay at the same clock time wherever you travel.
-function buildIcs(plan, startMonday, { time = '06:30', leadMin = 60, now = new Date() } = {}) {
+function buildIcs(plan, startMonday, { time = '06:30', leadMin = 60, now = new Date(), edits = {} } = {}) {
   const [hh, mm] = time.split(':').map(Number);
   const stamp = utcStamp(now);
   const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//run-plan-builder//EN', 'CALSCALE:GREGORIAN'];
@@ -913,7 +923,10 @@ function buildIcs(plan, startMonday, { time = '06:30', leadMin = 60, now = new D
     for (let d = 0; d < 7; d++) {
       const day = w.days[d];
       if (day.type === 'rest') continue;
-      const date = planDate(startMonday, w.week, d);
+      const origDate = planDate(startMonday, w.week, d);
+      const edit = edits[isoDate(origDate)] || {};
+      if (edit.skip) continue; // skipped runs are left out of the calendar
+      const date = edit.to ? parseIso(edit.to) : origDate;
       const start = new Date(date.getFullYear(), date.getMonth(), date.getDate(), hh, mm);
       const mins =
         day.type === 'race'
@@ -947,7 +960,7 @@ function buildIcs(plan, startMonday, { time = '06:30', leadMin = 60, now = new D
 
 // ---------- plain text ----------
 
-function planToText(plan, startMonday) {
+function planToText(plan, startMonday, edits = {}) {
   const p = plan.paces;
   const out = [];
   out.push(`Goal ${plan.input.goalKm} km, projected ${fmtDuration(p.goalTimeMin)} (${fmtPace(p.goal)}/km)`);
@@ -958,7 +971,9 @@ function planToText(plan, startMonday) {
     for (let d = 0; d < 7; d++) {
       const day = w.days[d];
       if (day.type === 'rest') continue;
-      out.push(`  ${DAYS[d]} ${day.km} km  ${day.title}. ${day.detail}`);
+      const edit = edits[isoDate(planDate(startMonday, w.week, d))] || {};
+      const note = edit.skip ? (edit.skip === 'sick' ? ' [SKIPPED, sick]' : ' [SKIPPED]') : edit.to ? ` [MOVED to ${shortDate(parseIso(edit.to))}]` : '';
+      out.push(`  ${DAYS[d]} ${day.km} km  ${day.title}. ${day.detail}${note}`);
     }
   }
   return out.join('\n');
@@ -1003,6 +1018,16 @@ function planToText(plan, startMonday) {
   }
   var done = load('runplan.done.v1', {});
   var current = null; // { plan, startMonday, race }
+  // Skips and moves, keyed by the run's ORIGINAL date: { '2026-11-24': { skip: 'sick' } or { to: '2026-11-26' } }
+  var edits = load('runplan.edits.v1', {});
+  var editOpen = null; // original date of the run whose skip/move panel is open
+  function effDate(orig) { var e = edits[orig]; return e && e.to ? e.to : orig; }
+  function tidy(orig) {
+    var e = edits[orig]; if (!e) return;
+    if (e.to === orig) delete e.to;
+    if (!e.to && !e.skip) delete edits[orig];
+  }
+  function saveEdits() { save('runplan.edits.v1', edits); }
 
   // ---- form building ----
   function seg(container, name, options, selected) {
@@ -1097,6 +1122,9 @@ function planToText(plan, startMonday) {
   }
 
   function syncFormUi() {
+    var nEdits = Object.keys(edits).length;
+    $('editsHint').hidden = !nEdits;
+    $('editsHint').textContent = nEdits ? 'Building a plan clears your ' + nEdits + ' skipped or moved run' + (nEdits === 1 ? '' : 's') + '.' : '';
     $('peakWrap').hidden = $('peakAuto').checked;
     $('refCustomWrap').hidden = $('refDist').value !== 'other';
     var rd = parseIso($('raceDate').value), sd = parseIso($('startDate').value);
@@ -1174,18 +1202,27 @@ function planToText(plan, startMonday) {
   }
   function stat(big, small) { return '<div class="stat"><b>' + esc(big) + '</b><span>' + esc(small) + '</span></div>'; }
 
+  // Every run with its current date, skip flag and original date.
+  function runItems() {
+    var out = [];
+    current.plan.weeks.forEach(function (w) {
+      w.days.forEach(function (day, d) {
+        if (day.type === 'rest') return;
+        var orig = isoDate(dayDate(w, d)), e = edits[orig] || {};
+        out.push({ w: w, d: d, day: day, orig: orig, eff: e.to || orig, skip: e.skip || '' });
+      });
+    });
+    return out;
+  }
+
   function findNext() {
-    var today = todayLocal();
-    var weeks = current.plan.weeks;
-    for (var i = 0; i < weeks.length; i++) {
-      for (var d = 0; d < 7; d++) {
-        var day = weeks[i].days[d];
-        if (day.type === 'rest') continue;
-        var dt = dayDate(weeks[i], d);
-        if (dt >= today && !done[isoDate(dt)]) return { w: weeks[i], d: d, day: day, dt: dt };
-      }
-    }
-    return null;
+    var today = isoDate(todayLocal()), best = null;
+    runItems().forEach(function (it) {
+      if (it.skip || done[it.orig] || it.eff < today) return;
+      if (!best || it.eff < best.eff) best = it;
+    });
+    if (best) best.dt = parseIso(best.eff);
+    return best;
   }
 
   function renderNext() {
@@ -1197,12 +1234,16 @@ function planToText(plan, startMonday) {
     var isToday = isoDate(n.dt) === isoDate(today);
     var days = Math.round((n.dt - today) / 86400000);
     var when = isToday ? 'Today' : days === 1 ? 'Tomorrow' : shortDate(n.dt);
-    var key = isoDate(n.dt);
+    var key = n.orig;
     return '<div class="card next">' +
       '<span class="when">' + esc(when) + ' &middot; week ' + n.w.week + '</span>' +
       '<h2>' + esc(n.day.title) + ', ' + n.day.km + ' km</h2>' +
       '<p>' + esc(n.day.detail) + '</p>' +
-      '<div class="actions"><button class="btn primary" data-done="' + key + '">Mark done</button></div>' +
+      (n.eff !== n.orig ? '<p class="note">Moved from ' + esc(shortDate(parseIso(n.orig))) + '.</p>' : '') +
+      '<div class="actions"><button class="btn primary" data-done="' + key + '">Mark done</button>' +
+      '<button class="btn" data-act="skip-sick" data-k="' + key + '">Sick, skip</button>' +
+      '<button class="btn" data-act="edit" data-k="' + key + '">' + (editOpen === key ? 'Close' : 'Move or skip') + '</button></div>' +
+      (editOpen === key ? editPanel(n) : '') +
       '</div>';
   }
 
@@ -1230,23 +1271,57 @@ function planToText(plan, startMonday) {
       '</div>';
   }
 
+  function editPanel(it) {
+    var k = it.orig, min = isoDate(current.startMonday), max = isoDate(addDays(current.race, -1));
+    var html = '<div class="panel">';
+    if (it.skip) {
+      html += '<div class="prow"><button class="btn" data-act="unskip" data-k="' + k + '">Undo skip</button></div>';
+    } else {
+      html += '<div class="prow"><button class="btn" data-act="skip-sick" data-k="' + k + '">Skip, I was sick</button>' +
+        '<button class="btn" data-act="skip" data-k="' + k + '">Skip, other reason</button></div>' +
+        '<div class="prow"><input type="date" value="' + it.eff + '" min="' + min + '" max="' + max + '" aria-label="Move to date">' +
+        '<button class="btn primary" data-act="move" data-k="' + k + '">Move here</button></div>' +
+        '<p class="hint">If that day already has a run, the two runs swap.</p>';
+    }
+    if (it.eff !== k) html += '<div class="prow"><button class="btn" data-act="reset" data-k="' + k + '">Back to original day</button></div>';
+    return html + '</div>';
+  }
+
+  function runRow(it, key, isToday) {
+    var day = it.day, moved = it.eff !== it.orig;
+    var tags = (it.skip ? '<span class="tag">' + (it.skip === 'sick' ? 'Skipped, sick' : 'Skipped') + '</span>' : '') +
+      (moved ? '<span class="tag">Moved from ' + esc(shortDate(parseIso(it.orig))) + '</span>' : '');
+    var box = it.skip
+      ? '<span class="chk"><span class="ph"></span></span>'
+      : '<label class="chk"><input type="checkbox" data-date="' + it.orig + '"' + (done[it.orig] ? ' checked' : '') + ' aria-label="Done: ' + esc(shortDate(parseIso(key))) + '"></label>';
+    var edit = day.type === 'race' ? '' :
+      '<button class="linkbtn" data-act="edit" data-k="' + it.orig + '">' + (editOpen === it.orig ? 'Close' : 'Skip or move') + '</button>';
+    return '<div class="day ' + day.type + (isToday ? ' today' : '') + (it.skip ? ' skipped' : '') + '">' + box +
+      '<div><div class="dhead"><b>' + esc(shortDate(parseIso(key))) + '</b><span class="dkm">' + day.km + ' km</span><span class="dtitle">' + esc(day.title) + '</span>' + tags + '</div>' +
+      '<p class="dd">' + esc(day.detail) + '</p>' + edit + (editOpen === it.orig ? editPanel(it) : '') + '</div></div>';
+  }
+
   function renderWeeks() {
-    var today = todayLocal();
+    var today = todayLocal(), todayKey = isoDate(today);
     var weeks = current.plan.weeks;
     var openWeek = 1;
     weeks.forEach(function (w) {
       var a = dayDate(w, 0), b = dayDate(w, 6);
       if (today >= a && today <= b) openWeek = w.week;
     });
+    var byEff = {}, away = {};
+    runItems().forEach(function (it) {
+      (byEff[it.eff] = byEff[it.eff] || []).push(it);
+      if (it.eff !== it.orig) (away[it.orig] = away[it.orig] || []).push(it);
+    });
     return weeks.map(function (w) {
       var rows = w.days.map(function (day, d) {
-        var dt = dayDate(w, d), key = isoDate(dt);
-        var isToday = key === isoDate(today);
-        if (day.type === 'rest') return '<div class="day rest"><span>' + esc(shortDate(dt)) + ' &middot; rest</span></div>';
-        return '<div class="day ' + day.type + (isToday ? ' today' : '') + '">' +
-          '<label class="chk"><input type="checkbox" data-date="' + key + '"' + (done[key] ? ' checked' : '') + ' aria-label="Done: ' + esc(shortDate(dt)) + '"></label>' +
-          '<div><div class="dhead"><b>' + esc(shortDate(dt)) + '</b><span class="dkm">' + day.km + ' km</span><span class="dtitle">' + esc(day.title) + '</span></div>' +
-          '<p class="dd">' + esc(day.detail) + '</p></div></div>';
+        var key = isoDate(dayDate(w, d));
+        var html = (byEff[key] || []).map(function (it) { return runRow(it, key, key === todayKey); }).join('');
+        html += (away[key] || []).map(function (it) {
+          return '<div class="day ghost"><span>' + esc(shortDate(parseIso(key))) + ' &middot; ' + esc(it.day.title) + ' moved to ' + esc(shortDate(parseIso(it.eff))) + '</span></div>';
+        }).join('');
+        return html || '<div class="day rest"><span>' + esc(shortDate(parseIso(key))) + ' &middot; rest</span></div>';
       }).join('');
       var longTxt = w.longKm ? ', long run ' + w.longKm + ' km' : '';
       return '<details class="week"' + (w.week === openWeek ? ' open' : '') + '>' +
@@ -1256,6 +1331,15 @@ function planToText(plan, startMonday) {
     }).join('');
   }
 
+  // Redraw after an edit, keeping open weeks and scroll position.
+  function rerender() {
+    var y = window.scrollY;
+    var open = Array.prototype.map.call(document.querySelectorAll('details.week'), function (d) { return d.open; });
+    renderPlan();
+    Array.prototype.forEach.call(document.querySelectorAll('details.week'), function (d, i) { d.open = !!open[i]; });
+    window.scrollTo(0, y);
+  }
+
   function renderActions() {
     // Inside the preview sandbox (a frame), file downloads are blocked. In your own copy they work.
     var embedded = false;
@@ -1263,7 +1347,8 @@ function planToText(plan, startMonday) {
     var canDownload = !embedded && !window.claude;
     return '<div class="card"><h2>Take it with you</h2><div class="actions">' +
       (canDownload ? '<button class="btn primary" id="btnIcs">Download calendar reminders</button>' : '') +
-      '<button class="btn" id="btnCopy">Copy plan as text</button></div>' +
+      '<button class="btn" id="btnCopy">Copy plan as text</button>' +
+      (Object.keys(edits).length ? '<button class="btn" data-act="resetall">Undo all skips and moves (' + Object.keys(edits).length + ')</button>' : '') + '</div>' +
       '<p class="note">' + (canDownload
         ? 'The calendar file adds every run to your phone with an alert before it. Open it on your phone to import.'
         : 'Calendar reminders need a downloadable file, which this preview blocks. Open your own copy of this page to get the calendar file.') +
@@ -1274,7 +1359,7 @@ function planToText(plan, startMonday) {
     if (!current) return;
     var s = current.s;
     $('subline').textContent = s.days + ' days a week, ' + s.hills + ' hills, long run ' + s.longDay + ', race ' + longDate(current.race);
-    $('view-plan').innerHTML = renderSummary() + '<div id="nextHolder">' + renderNext() + '</div>' + renderChart() + renderWeeks() + renderActions();
+    $('view-plan').innerHTML = renderSummary() + '<div id="nextHolder">' + renderNext() + '</div>' + renderChart() + renderWeeks() + renderActions() + renderCoros();
   }
 
   function refreshNext() { var h = $('nextHolder'); if (h) h.innerHTML = renderNext(); }
@@ -1308,9 +1393,261 @@ function planToText(plan, startMonday) {
     setTimeout(function () { URL.revokeObjectURL(url); }, 3000);
   }
 
+  // ---- COROS connection: OAuth 2.0 with PKCE, then the COROS MCP over HTTP ----
+  // Stage 1: sign in and list what COROS offers. Reading runs comes next.
+  var COROS = { regions: { us: 'https://mcpus.coros.com', eu: 'https://mcpeu.coros.com' }, scope: 'openid mcp.tools offline_access' };
+  var DEVICE_GRANT = 'urn:ietf:params:oauth:grant-type:device_code';
+  var corosLog = '', deviceInfo = null, devicePolling = false, mcpSession = null, mcpReady = false, mcpId = 0;
+
+  function clog(msg) {
+    corosLog += (corosLog ? '\n' : '') + msg;
+    var el = document.getElementById('corosOut');
+    if (el) { el.textContent = corosLog; el.hidden = false; el.scrollTop = el.scrollHeight; }
+  }
+  function corosState() { return load('runplan.coros.v1', {}); }
+  function corosSave(o) { save('runplan.coros.v1', o); }
+  function corosRegion() { return corosState().region || 'us'; }
+  function redirectUri() { return location.origin + location.pathname; }
+  function formBody(o) { return Object.keys(o).map(function (k) { return encodeURIComponent(k) + '=' + encodeURIComponent(o[k]); }).join('&'); }
+  function b64url(bytes) {
+    var s = ''; for (var i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+    return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function randomString(n) { var a = new Uint8Array(n); crypto.getRandomValues(a); return b64url(a); }
+  function sha256url(text) {
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(text)).then(function (buf) { return b64url(new Uint8Array(buf)); });
+  }
+
+  // COROS publishes its OAuth endpoints at a standard address. Fall back to the paths you saw in the test.
+  function corosMeta(region) {
+    var base = COROS.regions[region];
+    var fallback = {
+      authorization_endpoint: base + '/oauth2/authorize', token_endpoint: base + '/oauth2/token',
+      device_authorization_endpoint: base + '/oauth2/device_authorization', registration_endpoint: base + '/connect/register'
+    };
+    return fetch(base + '/.well-known/oauth-authorization-server').then(function (r) { return r.ok ? r.json() : fallback; }).catch(function () { return fallback; });
+  }
+
+  // Register this page with COROS once per sign-in type. COROS accepts this without an application.
+  function corosClient(meta, kind, region) {
+    var st = corosState(), redirect = redirectUri();
+    var cur = st.clients && st.clients[kind];
+    if (cur && cur.region === region && (kind === 'device' || cur.redirect === redirect)) return Promise.resolve(cur.id);
+    var body = kind === 'device'
+      ? { client_name: 'Run Plan', grant_types: [DEVICE_GRANT, 'refresh_token'], token_endpoint_auth_method: 'none', scope: COROS.scope }
+      : { client_name: 'Run Plan', redirect_uris: [redirect], grant_types: ['authorization_code', 'refresh_token'], response_types: ['code'], token_endpoint_auth_method: 'none', scope: COROS.scope };
+    return fetch(meta.registration_endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      .then(function (r) { return r.text().then(function (t) { if (!r.ok) throw new Error('Registration ' + r.status + ': ' + t.slice(0, 300)); return JSON.parse(t); }); })
+      .then(function (c) {
+        var s2 = corosState(); s2.clients = s2.clients || {};
+        s2.clients[kind] = { id: c.client_id, region: region, redirect: redirect }; corosSave(s2);
+        return c.client_id;
+      });
+  }
+
+  function corosStoreTokens(t, region, clientId) {
+    var st = corosState(), old = st.tokens || {};
+    st.tokens = { access: t.access_token, refresh: t.refresh_token || old.refresh || '', exp: Date.now() + (t.expires_in || 3600) * 1000, region: region, clientId: clientId };
+    corosSave(st);
+  }
+  function tokenRequest(meta, params) {
+    return fetch(meta.token_endpoint, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formBody(params) })
+      .then(function (r) { return r.text().then(function (t) { var j = {}; try { j = JSON.parse(t); } catch (e) {} return { ok: r.ok, status: r.status, json: j, text: t }; }); });
+  }
+
+  function corosToken() {
+    var st = corosState(), t = st.tokens;
+    if (!t) return Promise.reject(new Error('Not connected. Tap Connect COROS.'));
+    if (t.exp > Date.now() + 60000) return Promise.resolve(t.access);
+    if (!t.refresh) return Promise.reject(new Error('Sign-in expired. Connect again.'));
+    return corosMeta(t.region).then(function (meta) {
+      return tokenRequest(meta, { grant_type: 'refresh_token', refresh_token: t.refresh, client_id: t.clientId }).then(function (res) {
+        if (!res.ok) throw new Error('Could not refresh the sign-in (' + res.status + '). Connect again.');
+        corosStoreTokens(res.json, t.region, t.clientId); return res.json.access_token;
+      });
+    });
+  }
+
+  // Sign-in A: redirect to COROS and back (use this on a computer).
+  function corosConnect() {
+    var region = corosRegion(), redirect = redirectUri();
+    return corosMeta(region).then(function (meta) {
+      return corosClient(meta, 'code', region).then(function (id) {
+        var verifier = randomString(48), state = randomString(16);
+        return sha256url(verifier).then(function (challenge) {
+          save('runplan.coros.pending', { verifier: verifier, state: state, region: region, id: id, redirect: redirect });
+          location.href = meta.authorization_endpoint + '?' + formBody({
+            response_type: 'code', client_id: id, redirect_uri: redirect, scope: COROS.scope,
+            state: state, code_challenge: challenge, code_challenge_method: 'S256'
+          });
+        });
+      });
+    });
+  }
+  function corosReturn() {
+    var p = new URLSearchParams(location.search);
+    if (!p.has('code') && !p.has('error')) return Promise.resolve();
+    history.replaceState(null, '', location.pathname);
+    var pend = load('runplan.coros.pending', null);
+    if (p.get('error')) { clog('COROS sign-in error: ' + p.get('error') + ' ' + (p.get('error_description') || '')); return Promise.resolve(); }
+    if (!pend || pend.state !== p.get('state')) { clog('The sign-in return did not match. Tap Connect COROS again.'); return Promise.resolve(); }
+    return corosMeta(pend.region).then(function (meta) {
+      return tokenRequest(meta, { grant_type: 'authorization_code', code: p.get('code'), redirect_uri: pend.redirect, client_id: pend.id, code_verifier: pend.verifier });
+    }).then(function (res) {
+      if (!res.ok) throw new Error('Token request ' + res.status + ': ' + res.text.slice(0, 300));
+      corosStoreTokens(res.json, pend.region, pend.id);
+      save('runplan.coros.pending', null);
+      clog('Connected to COROS.');
+    }).catch(function (e) { clog('Sign-in failed: ' + e.message + corosHint(e)); });
+  }
+
+  // Sign-in B: show a code, approve it on any browser (works from the Home Screen app).
+  function corosDevice() {
+    var region = corosRegion();
+    return corosMeta(region).then(function (meta) {
+      return corosClient(meta, 'device', region).then(function (id) {
+        return fetch(meta.device_authorization_endpoint, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: formBody({ client_id: id, scope: COROS.scope }) })
+          .then(function (r) { return r.text().then(function (t) { if (!r.ok) throw new Error('Device sign-in ' + r.status + ': ' + t.slice(0, 300)); return JSON.parse(t); }); })
+          .then(function (d) {
+            deviceInfo = { url: d.verification_uri_complete || d.verification_uri, code: d.user_code };
+            rerender();
+            var wait = (d.interval || 5) * 1000, until = Date.now() + (d.expires_in || 600) * 1000;
+            devicePolling = true;
+            (function poll() {
+              if (!devicePolling) return;
+              if (Date.now() > until) { devicePolling = false; deviceInfo = null; clog('The code expired. Try again.'); rerender(); return; }
+              tokenRequest(meta, { grant_type: DEVICE_GRANT, device_code: d.device_code, client_id: id }).then(function (res) {
+                if (res.ok) { devicePolling = false; deviceInfo = null; corosStoreTokens(res.json, region, id); clog('Connected to COROS.'); rerender(); return; }
+                var err = res.json && res.json.error;
+                if (err === 'slow_down') wait += 5000;
+                if (err === 'authorization_pending' || err === 'slow_down') { setTimeout(poll, wait); return; }
+                devicePolling = false; deviceInfo = null; clog('Device sign-in failed: ' + res.text.slice(0, 300)); rerender();
+              }).catch(function (e) { devicePolling = false; deviceInfo = null; clog('Device sign-in failed: ' + e.message + corosHint(e)); rerender(); });
+            })();
+          });
+      });
+    });
+  }
+
+  // MCP over HTTP: send JSON-RPC messages, read JSON or an event stream back.
+  function mcpRpc(method, params, notify) {
+    return corosToken().then(function (tok) {
+      var url = COROS.regions[corosState().tokens.region] + '/mcp';
+      var headers = { 'Content-Type': 'application/json', 'Accept': 'application/json, text/event-stream', 'Authorization': 'Bearer ' + tok };
+      if (mcpSession) headers['Mcp-Session-Id'] = mcpSession;
+      var msg = { jsonrpc: '2.0', method: method, params: params || {} };
+      if (!notify) msg.id = ++mcpId;
+      return fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(msg) }).then(function (r) {
+        var sid = r.headers.get('Mcp-Session-Id'); if (sid) mcpSession = sid;
+        if (notify) return null;
+        return r.text().then(function (text) {
+          if (!r.ok) throw new Error('MCP ' + r.status + ': ' + text.slice(0, 300));
+          var json = null;
+          if ((r.headers.get('Content-Type') || '').indexOf('text/event-stream') >= 0) {
+            text.split('\n').forEach(function (line) {
+              if (line.indexOf('data:') !== 0) return;
+              try { var o = JSON.parse(line.slice(5).trim()); if (o.id === msg.id) json = o; } catch (e) {}
+            });
+          } else { json = JSON.parse(text); }
+          if (!json) throw new Error('No reply from COROS.');
+          if (json.error) throw new Error(JSON.stringify(json.error));
+          return json.result;
+        });
+      });
+    });
+  }
+  function mcpInit() {
+    if (mcpReady) return Promise.resolve();
+    return mcpRpc('initialize', { protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'run-plan', version: '1.0' } })
+      .then(function (res) { clog('Connected to ' + ((res && res.serverInfo && res.serverInfo.name) || 'COROS MCP') + '.'); return mcpRpc('notifications/initialized', {}, true); })
+      .then(function () { mcpReady = true; });
+  }
+  function corosDiagnose() {
+    clog('Testing the connection...');
+    return mcpInit().then(function () { return mcpRpc('tools/list', {}); }).then(function (list) {
+      var tools = list.tools || [];
+      clog('COROS offers ' + tools.length + ' tools: ' + tools.map(function (t) { return t.name; }).join(', '));
+      var want = ['querySportRecords', 'getActivityDetail', 'queryFitnessAssessmentOverview'];
+      tools.filter(function (t) { return want.indexOf(t.name) >= 0; }).forEach(function (t) {
+        clog('\n' + t.name + ' accepts: ' + JSON.stringify(t.inputSchema));
+      });
+    });
+  }
+
+  function corosHint(e) {
+    return /Failed to fetch|NetworkError|Load failed/i.test(e && e.message || '')
+      ? '\nThe browser blocked the request. COROS may not allow this step from a web page. Send me this message.' : '';
+  }
+  function corosAct(name) {
+    var run;
+    if (name === 'connect') run = corosConnect();
+    else if (name === 'device') run = corosDevice();
+    else if (name === 'diag') run = corosDiagnose();
+    else if (name === 'copylog') { copyText(corosLog || 'Nothing to copy.'); return; }
+    else if (name === 'cancel') { devicePolling = false; deviceInfo = null; rerender(); return; }
+    else if (name === 'disconnect') {
+      var st = corosState(); delete st.tokens; corosSave(st); mcpReady = false; mcpSession = null; devicePolling = false; deviceInfo = null;
+      clog('Disconnected. The saved sign-in was removed from this browser.'); rerender(); return;
+    }
+    if (run) run.catch(function (e) { clog('Error: ' + e.message + corosHint(e)); });
+  }
+
+  function renderCoros() {
+    var embedded = false;
+    try { embedded = window.self !== window.top; } catch (e) { embedded = true; }
+    if (embedded || window.claude) return '';
+    var st = corosState(), connected = !!(st.tokens && (st.tokens.refresh || st.tokens.access));
+    var region = st.region || 'us';
+    var btns = connected
+      ? '<button class="btn primary" data-coros="diag">Test connection</button><button class="btn" data-coros="disconnect">Disconnect</button>'
+      : '<button class="btn primary" data-coros="connect">Connect COROS</button><button class="btn" data-coros="device">Connect with a code</button>';
+    var dev = deviceInfo
+      ? '<p class="note">Open <a href="' + esc(deviceInfo.url) + '" target="_blank" rel="noopener">' + esc(deviceInfo.url) + '</a> and enter the code <b>' + esc(deviceInfo.code) + '</b>. This page checks every few seconds. <button class="linkbtn" data-coros="cancel">Cancel</button></p>' : '';
+    return '<div class="card"><h2>COROS</h2>' +
+      '<p class="note">' + (connected ? 'Connected. Next step is reading your finished runs.' : 'Sign in so the app can read your finished runs. Your sign-in stays in this browser only.') + '</p>' +
+      '<label class="lbl" for="corosRegion">COROS region</label><select id="corosRegion"><option value="us"' + (region === 'us' ? ' selected' : '') + '>North America and elsewhere</option><option value="eu"' + (region === 'eu' ? ' selected' : '') + '>Europe</option></select>' +
+      '<div class="actions">' + btns + '</div>' + dev +
+      '<pre class="logbox" id="corosOut"' + (corosLog ? '' : ' hidden') + '>' + esc(corosLog) + '</pre>' +
+      (corosLog ? '<div class="actions"><button class="btn" data-coros="copylog">Copy this output</button></div>' : '') +
+      '</div>';
+  }
+
+  function handleAct(btn) {
+    var a = btn.getAttribute('data-act'), k = btn.getAttribute('data-k');
+    if (a === 'resetall') { edits = {}; saveEdits(); editOpen = null; rerender(); flash('All skips and moves undone.'); return; }
+    if (a === 'edit') { editOpen = editOpen === k ? null : k; rerender(); return; }
+    if (a === 'skip-sick' || a === 'skip') {
+      edits[k] = Object.assign(edits[k] || {}, { skip: a === 'skip-sick' ? 'sick' : 'skip' });
+      delete done[k]; save('runplan.done.v1', done);
+      saveEdits(); editOpen = null; rerender();
+      flash(a === 'skip-sick' ? 'Marked as skipped, sick. Rest up.' : 'Marked as skipped.');
+      return;
+    }
+    if (a === 'unskip') { if (edits[k]) { delete edits[k].skip; tidy(k); } saveEdits(); editOpen = null; rerender(); return; }
+    if (a === 'reset') { if (edits[k]) { delete edits[k].to; tidy(k); } saveEdits(); editOpen = null; rerender(); return; }
+    if (a === 'move') {
+      var panel = btn.closest('.panel'), input = panel && panel.querySelector('input[type="date"]');
+      var to = input ? input.value : '';
+      var min = isoDate(current.startMonday), max = isoDate(addDays(current.race, -1));
+      if (!parseIso(to) || to < min || to > max) { flash('Pick a date between ' + shortDate(parseIso(min)) + ' and ' + shortDate(parseIso(max)) + '.'); return; }
+      var cur = effDate(k);
+      if (to === cur) { flash('It is already on that day.'); return; }
+      var other = runItems().filter(function (x) { return x.eff === to && !x.skip && x.orig !== k && x.day.type !== 'race'; })[0];
+      edits[k] = Object.assign(edits[k] || {}, { to: to });
+      if (other) { edits[other.orig] = Object.assign(edits[other.orig] || {}, { to: cur }); tidy(other.orig); }
+      tidy(k);
+      saveEdits(); editOpen = null; rerender();
+      flash(other ? 'Moved to ' + shortDate(parseIso(to)) + ', swapped with ' + other.day.title + '.' : 'Moved to ' + shortDate(parseIso(to)) + '.');
+    }
+  }
+
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!(t instanceof Element)) return;
+    var cb = t.closest('[data-coros]');
+    if (cb) { corosAct(cb.getAttribute('data-coros')); return; }
+    var act = t.closest('[data-act]');
+    if (act && current) { handleAct(act); return; }
     var d = t.closest('[data-done]');
     if (d) {
       var k = d.getAttribute('data-done');
@@ -1318,9 +1655,9 @@ function planToText(plan, startMonday) {
       var cb = document.querySelector('input[data-date="' + k + '"]'); if (cb) cb.checked = true;
       refreshNext(); return;
     }
-    if (t.id === 'btnCopy' && current) copyText(planToText(current.plan, current.startMonday));
+    if (t.id === 'btnCopy' && current) copyText(planToText(current.plan, current.startMonday, edits));
     if (t.id === 'btnIcs' && current) {
-      download('run-plan.ics', buildIcs(current.plan, current.startMonday, { time: current.s.remindTime, leadMin: current.s.remindLead }), 'text/calendar');
+      download('run-plan.ics', buildIcs(current.plan, current.startMonday, { time: current.s.remindTime, leadMin: current.s.remindLead, edits: edits }), 'text/calendar');
       flash('Calendar file created. Open it to add the runs.');
     }
     var chip = t.closest('[data-goal]');
@@ -1329,6 +1666,7 @@ function planToText(plan, startMonday) {
 
   document.addEventListener('change', function (e) {
     var t = e.target;
+    if (t && t.id === 'corosRegion') { var cs = corosState(); cs.region = t.value; corosSave(cs); return; }
     if (t && t.matches && t.matches('input[data-date]')) {
       var key = t.getAttribute('data-date');
       if (t.checked) done[key] = true; else delete done[key];
@@ -1350,6 +1688,7 @@ function planToText(plan, startMonday) {
     box.hidden = true;
     try { buildPlan(s); } catch (ex) { box.textContent = 'Could not build that plan: ' + ex.message; box.hidden = false; return; }
     state = s; save('runplan.state.v1', s);
+    edits = {}; saveEdits(); editOpen = null;
     renderPlan(); showTab('plan'); window.scrollTo(0, 0);
   });
 
@@ -1370,6 +1709,7 @@ function planToText(plan, startMonday) {
     writeForm(state); buildPlan(state);
   }
   renderPlan();
+  corosReturn().then(function () { rerender(); });
 })();
 </script>
 </body>
