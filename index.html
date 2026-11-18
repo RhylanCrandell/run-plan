@@ -161,6 +161,7 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
   <div class="tabs" role="tablist" aria-label="Views">
     <button class="tab" role="tab" id="tab-plan" aria-selected="true" aria-controls="view-plan">Plan</button>
     <button class="tab" role="tab" id="tab-setup" aria-selected="false" aria-controls="view-setup">Setup</button>
+    <button class="tab" role="tab" id="tab-guide" aria-selected="false" aria-controls="view-guide">Guide</button>
   </div>
 
   <main>
@@ -303,6 +304,55 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
         <button type="submit" class="btn primary">Build plan</button>
       </form>
       <div class="card" id="syncCard" style="margin-top:14px"></div>
+    </section>
+
+    <section id="view-guide" role="tabpanel" aria-labelledby="tab-guide" hidden class="wrap" style="gap:14px">
+      <div class="card">
+        <h2>Put it on your phone</h2>
+        <p><b>iPhone.</b> Open <span class="num" id="guideUrl"></span> in Safari. Tap the Share button (a square with an arrow). Scroll down and tap Add to Home Screen, then Add. The new icon opens the app full screen.</p>
+        <p><b>Android.</b> Open the link in Chrome. Tap the menu (three dots), then Install app or Add to Home screen.</p>
+        <p class="note">The Home Screen icon keeps its own saved data, separate from Safari. Build your plan inside the version you will use every day. To see the same plan in both, or on a second device, create a sync code in Setup.</p>
+      </div>
+
+      <div class="card">
+        <h2>Your first plan</h2>
+        <p>Open Setup. Pick your race date and goal distance, choose Just finish or Beat my best, set how many days a week you can run, and enter your current weekly distance. Add a recent race result so the app can set your paces. Tap Build plan. Each run has a Done button, and you can skip or move any run if you are sick or busy.</p>
+      </div>
+
+      <div class="card">
+        <h2>How the plan is built</h2>
+        <ol style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px">
+          <li><b>Paces.</b> Your recent result becomes a fitness score (VDOT). Every training pace is a fixed share of that score. The goal time is projected from the same result. On trail the goal time is stretched by at least 10%, or by the climb if that is larger.</li>
+          <li><b>Weekly distance.</b> It starts at your current weekly distance and rises by at most 10% a week toward a peak week. The peak depends on the goal distance and on whether you want to finish or race it.</li>
+          <li><b>Down weeks.</b> Every fourth week drops by about 18% so your body can absorb the work.</li>
+          <li><b>Long run.</b> It grows by at most 1.5 km a week and stays under 30% of the week (a little more when you run only 3 or 4 days). Days next to the long run are rest or short easy runs.</li>
+          <li><b>One hard session a week.</b> Early weeks use hills, strides and short aerobic intervals. Later weeks move to threshold, tempo and goal-pace work. Finish plans drop the threshold intervals. Distance and intensity never peak on the same day.</li>
+          <li><b>Taper.</b> The last one to three weeks cut distance by roughly 40 to 60% while keeping some intensity. The last long run sits at least six days before the race.</li>
+        </ol>
+      </div>
+
+      <div class="card">
+        <h2>What it rests on</h2>
+        <p><b>Reasonably well supported.</b></p>
+        <ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+          <li>Training paces from VDOT, from Jack Daniels' <i>Daniels' Running Formula</i>. Based on lab-derived equations and population averages, so your own numbers may differ.</li>
+          <li>Race time projection with the Riegel formula (1981). It tends to flatter runners with a weak endurance base, and it gets less reliable beyond a marathon. The app uses a larger exponent for ultras, which is my own adjustment.</li>
+          <li>Taper shape from the meta-analysis by Bosquet and colleagues (2007): cut volume, keep intensity and frequency. A three-week taper for a 50k stretches evidence gathered on shorter events.</li>
+        </ul>
+        <p><b>Associations, not proof.</b> The minimum weekly distances come from cohort studies and coaching guidance, with no controlled trials behind them:</p>
+        <ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+          <li><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC7496388/" target="_blank" rel="noopener noreferrer">Half and full marathon volume and performance, 997 runners</a></li>
+          <li><a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC12327882/" target="_blank" rel="noopener noreferrer">Ultramarathon training load and injury</a></li>
+          <li><a href="https://www.scienceofultra.com/resources/mileage-minimums" target="_blank" rel="noopener noreferrer">Science of Ultra mileage minimums</a> (coaching guidance)</li>
+        </ul>
+        <p><b>Convention with little direct evidence.</b> The 10% weekly rule, a down week every fourth week, the 30% long-run cap, and hills early with race-specific work late are standard coaching habits. A 2025 study of 5,205 runners found no link between weekly increases and injury, but did find more injuries when one run was much longer than the longest run of the past month (<a href="https://pmc.ncbi.nlm.nih.gov/articles/PMC12421110" target="_blank" rel="noopener noreferrer">study</a>). That is why the long run grows slowly.</p>
+        <p><b>My own choices.</b> The 10% minimum trail stretch, counting 100 m of climb as about 1 km of effort, the easy-pace range, the hill-per-km categories, and the watch zones sent to COROS. Treat these as starting points and adjust them.</p>
+      </div>
+
+      <div class="card">
+        <h2>Limits</h2>
+        <p>This is a planning tool, not a coach or a medical service. Paces are estimates from one race result, so retest with a recent time trial now and then. Stop and see a clinician for sharp or lasting pain. If you miss a week through illness, skip it and carry on. Do not try to make up the distance.</p>
+      </div>
     </section>
   </main>
   <p class="note" id="status" role="status" aria-live="polite"></p>
@@ -2221,13 +2271,15 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
   });
 
   function showTab(which) {
-    var plan = which === 'plan';
-    $('view-plan').hidden = !plan; $('view-setup').hidden = plan;
-    $('tab-plan').setAttribute('aria-selected', String(plan));
-    $('tab-setup').setAttribute('aria-selected', String(!plan));
+    ['plan', 'setup', 'guide'].forEach(function (v) {
+      $('view-' + v).hidden = v !== which;
+      $('tab-' + v).setAttribute('aria-selected', String(v === which));
+    });
   }
   $('tab-plan').addEventListener('click', function () { showTab('plan'); });
   $('tab-setup').addEventListener('click', function () { showTab('setup'); });
+  $('tab-guide').addEventListener('click', function () { showTab('guide'); });
+  $('guideUrl').textContent = location.protocol === 'file:' ? 'your app link' : location.origin + location.pathname;
 
   // ---- start up ----
   $('goalChips').innerHTML = GOAL_CHIPS.map(function (c) { return '<button type="button" class="chip" data-goal="' + c[0] + '">' + c[1] + '</button>'; }).join('');
