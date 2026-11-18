@@ -302,6 +302,7 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
         <p class="hint" id="editsHint" hidden></p>
         <button type="submit" class="btn primary">Build plan</button>
       </form>
+      <div class="card" id="syncCard" style="margin-top:14px"></div>
     </section>
   </main>
   <p class="note" id="status" role="status" aria-live="polite"></p>
@@ -1260,7 +1261,130 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     try { var s = localStorage.getItem(key); if (s) return JSON.parse(s); } catch (e) {}
     return fallback;
   }
-  function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} }
+  function save(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {} syncTouch(key); }
+
+
+  // ---- optional sync across devices (your own Supabase project) ----
+  // Put your project URL and public key here to skip typing them on each device. Both are safe to publish.
+  var SYNC_URL = '', SYNC_KEY = '';
+  var SYNC_KEYS = ['runplan.state.v1', 'runplan.done.v1', 'runplan.edits.v1', 'runplan.push.v1'];
+  var sync = Object.assign({ url: '', key: '', code: '', last: '', dirty: 0 }, load('runplan.sync.v1', {}));
+  var syncMsg = '', syncTimer = null, syncBusy = false;
+  function syncStore() { try { localStorage.setItem('runplan.sync.v1', JSON.stringify(sync)); } catch (e) {} }
+  function syncCfg() { return { url: (SYNC_URL || sync.url || '').replace(/\/+$/, ''), key: SYNC_KEY || sync.key || '' }; }
+  function syncReady() { var c = syncCfg(); return !!(c.url && c.key && sync.code); }
+  var B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
+  function newCode() {
+    var bytes = new Uint8Array(17); crypto.getRandomValues(bytes);
+    var out = '', bits = 0, acc = 0;
+    for (var i = 0; i < bytes.length && out.length < 26; i++) {
+      acc = (acc << 8) | bytes[i]; bits += 8;
+      while (bits >= 5 && out.length < 26) { bits -= 5; out += B32[(acc >> bits) & 31]; }
+      acc &= (1 << bits) - 1;
+    }
+    return out.match(/.{1,5}/g).join('-');
+  }
+  function normCode(t) { return String(t || '').toUpperCase().replace(/O/g, '0').replace(/[IL]/g, '1').replace(/[^0-9A-Z]/g, ''); }
+  function showCode(c) { return c.match(/.{1,5}/g).join('-'); }
+  function sha(code) {
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode('runplan:' + code)).then(function (b) {
+      return Array.prototype.map.call(new Uint8Array(b), function (x) { return ('0' + x.toString(16)).slice(-2); }).join('');
+    });
+  }
+  function syncRpc(name, args) {
+    var c = syncCfg(), h = { 'Content-Type': 'application/json', apikey: c.key };
+    if (c.key.indexOf('eyJ') === 0) h.Authorization = 'Bearer ' + c.key;
+    return fetch(c.url + '/rest/v1/rpc/' + name, { method: 'POST', headers: h, body: JSON.stringify(args) }).then(function (r) {
+      return r.text().then(function (t) {
+        if (!r.ok) throw new Error(name + ' failed (' + r.status + '): ' + t.slice(0, 200));
+        try { return JSON.parse(t); } catch (e) { return t; }
+      });
+    });
+  }
+  function syncGather() {
+    var keys = {};
+    SYNC_KEYS.forEach(function (k) { var v = null; try { v = localStorage.getItem(k); } catch (e) {} if (v != null) keys[k] = v; });
+    return { v: 1, keys: keys };
+  }
+  function syncSetMsg(t) { syncMsg = t; var el = $('syncMsg'); if (el) el.textContent = t; }
+  function clock() { var d = new Date(); return ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2); }
+  function syncPush() {
+    return sha(normCode(sync.code)).then(function (id) { return syncRpc('put_plan', { p_id: id, p_data: syncGather() }); }).then(function (ts) {
+      sync.last = typeof ts === 'string' ? ts : String(ts); sync.dirty = 0; syncStore(); syncSetMsg('Saved to sync at ' + clock() + '.');
+    });
+  }
+  // mustExist: when entering a code on a new device, refuse to start an empty plan under a mistyped code.
+  function syncPull(opts) {
+    opts = opts || {};
+    if (!syncReady() || syncBusy) return Promise.resolve();
+    syncBusy = true;
+    return sha(normCode(sync.code)).then(function (id) { return syncRpc('get_plan', { p_id: id }); }).then(function (rows) {
+      syncBusy = false;
+      var r = Array.isArray(rows) ? rows[0] : null;
+      if (!r) {
+        if (opts.mustExist) { sync.code = ''; syncStore(); throw new Error('No saved plan under that code. Check the code and try again.'); }
+        return syncPush();
+      }
+      var remoteTs = String(r.updated_at);
+      if (remoteTs === sync.last) { if (sync.dirty) return syncPush(); syncSetMsg('Up to date at ' + clock() + '.'); return; }
+      if (sync.dirty && sync.dirty > Date.parse(remoteTs)) return syncPush();
+      var keys = (r.data && r.data.keys) || {};
+      Object.keys(keys).forEach(function (k) { if (SYNC_KEYS.indexOf(k) >= 0) { try { localStorage.setItem(k, keys[k]); } catch (e) {} } });
+      sync.last = remoteTs; sync.dirty = 0; syncStore();
+      location.reload();
+    }).catch(function (e) { syncBusy = false; syncSetMsg('Sync failed: ' + e.message); throw e; });
+  }
+  function syncTouch(key) {
+    if (SYNC_KEYS.indexOf(key) < 0 || !syncReady()) return;
+    sync.dirty = Date.now(); syncStore();
+    clearTimeout(syncTimer);
+    syncTimer = setTimeout(function () { syncPush().catch(function (e) { syncSetMsg('Sync failed: ' + e.message + ' The change is kept on this device.'); }); }, 1500);
+  }
+  function renderSync() {
+    var el = $('syncCard'); if (!el) return;
+    var c = syncCfg(), h = '<h2>Sync</h2>';
+    if (!c.url || !c.key) {
+      h += '<p class="note">Saves your plan to your own free Supabase project, so every device shows the same plan. Paste the two values from the project\'s API settings.</p>' +
+        '<label class="lbl" for="syncUrl">Project URL</label><input id="syncUrl" type="url" placeholder="https://abcd.supabase.co" autocomplete="off">' +
+        '<label class="lbl" for="syncKey" style="margin-top:12px">Public key (anon or publishable)</label><input id="syncKey" type="text" autocomplete="off">' +
+        '<div class="actions" style="margin-top:12px"><button type="button" class="btn primary" data-sync="saveCfg">Save</button></div>';
+    } else if (!sync.code) {
+      h += '<p class="note">Make a sync code on this device, then enter it on your other devices.</p>' +
+        '<div class="actions"><button type="button" class="btn primary" data-sync="create">Create a sync code</button></div>' +
+        '<label class="lbl" for="syncCodeIn" style="margin-top:12px">Or enter an existing code</label><input id="syncCodeIn" type="text" autocomplete="off" autocapitalize="characters">' +
+        '<div class="actions" style="margin-top:12px"><button type="button" class="btn" data-sync="use">Use this code</button></div>' +
+        (SYNC_URL ? '' : '<div class="actions" style="margin-top:12px"><button type="button" class="btn" data-sync="resetCfg">Change project</button></div>');
+    } else {
+      h += '<p class="note">Your sync code. Keep it private: anyone with it can read and change your plan.</p><p class="num" style="font-size:18px;font-weight:700;word-break:break-all">' + esc(sync.code) + '</p>' +
+        '<div class="actions"><button type="button" class="btn" data-sync="copy">Copy code</button><button type="button" class="btn" data-sync="now">Sync now</button><button type="button" class="btn" data-sync="off">Turn off on this device</button></div>' +
+        '<p class="note">Your COROS sign-in does not sync. Connect it on each device.</p>';
+    }
+    h += '<p class="note" id="syncMsg" role="status">' + esc(syncMsg) + '</p>';
+    el.innerHTML = h;
+  }
+  function syncAct(name) {
+    var run = Promise.resolve();
+    if (name === 'saveCfg') {
+      var u = $('syncUrl').value.trim(), k = $('syncKey').value.trim();
+      if (!/^https:\/\/[^\s/]+/.test(u) || k.length < 20) { syncSetMsg('Enter the https project URL and the long public key.'); return; }
+      sync.url = u; sync.key = k; syncStore(); renderSync(); return;
+    }
+    if (name === 'resetCfg') { sync.url = ''; sync.key = ''; syncStore(); renderSync(); return; }
+    if (name === 'create') {
+      sync.code = newCode(); sync.last = ''; sync.dirty = Date.now(); syncStore();
+      run = syncPush();
+    } else if (name === 'use') {
+      var code = normCode($('syncCodeIn').value);
+      if (code.length !== 26) { syncSetMsg('That code should have 26 letters and digits.'); return; }
+      sync.code = showCode(code); sync.last = ''; sync.dirty = 0; syncStore();
+      syncSetMsg('Looking up your plan...');
+      run = syncPull({ mustExist: true });
+    } else if (name === 'now') {
+      run = syncPush().catch(function () {}).then(function () { return syncPull(); });
+    } else if (name === 'copy') { copyText(sync.code); return; }
+    else if (name === 'off') { sync.code = ''; sync.last = ''; sync.dirty = 0; syncStore(); syncSetMsg('Sync is off on this device. Your saved plan stays in the cloud.'); renderSync(); return; }
+    run.catch(function (e) { syncSetMsg('Sync failed: ' + e.message); }).then(renderSync);
+  }
 
   var state = Object.assign({}, DEFAULTS, load('runplan.state.v1', {}));
   if (!parseIso(state.raceDate)) {
@@ -2029,6 +2153,8 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
   document.addEventListener('click', function (e) {
     var t = e.target;
     if (!(t instanceof Element)) return;
+    var sb = t.closest('[data-sync]');
+    if (sb) { syncAct(sb.getAttribute('data-sync')); return; }
     var cb = t.closest('[data-coros]');
     if (cb) { corosAct(cb.getAttribute('data-coros'), cb); return; }
     var act = t.closest('[data-act]');
@@ -2103,6 +2229,9 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     writeForm(state); buildPlan(state);
   }
   renderPlan();
+  renderSync();
+  if (syncReady()) syncPull().catch(function (e) { flash('Sync failed: ' + e.message); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden && syncReady()) syncPull().catch(function () {}); });
   corosReturn().then(function () {
     rerender();
     var c = corosState();
