@@ -183,6 +183,12 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
         </fieldset>
 
         <fieldset>
+          <legend>What is the goal?</legend>
+          <div class="seg" id="segGoal"></div>
+          <p class="hint">Just finish aims for a lower peak week and drops the hardest interval session. Beat my best builds more volume and keeps threshold work.</p>
+        </fieldset>
+
+        <fieldset>
           <legend>Days per week</legend>
           <div class="seg" id="segDays"></div>
         </fieldset>
@@ -212,6 +218,7 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
             <label class="lbl" for="peakKm">Peak weekly distance (km)</label>
             <input id="peakKm" type="number" inputmode="decimal" min="10" max="300" step="1">
           </div>
+          <p class="hint" id="volHint" hidden></p>
         </fieldset>
 
         <fieldset>
@@ -386,6 +393,29 @@ const PEAK_TABLE = [
   [100, 110],
 ];
 
+// Lowest peak weekly km worth planning for, by goal distance (linear between points).
+// 'finish': enough to reach the line. 'pr': enough to race it. Anchors come from coaching guidance
+// and cohort studies; 5K and 10K 'pr' values and the points between anchors are interpolated.
+const MIN_PEAK_FINISH = [
+  [5, 16],
+  [10, 24],
+  [21.1, 35],
+  [42.2, 48],
+  [50, 48],
+  [100, 64],
+];
+const MIN_PEAK_PR = [
+  [5, 32],
+  [10, 40],
+  [21.1, 50],
+  [42.2, 65],
+  [50, 80],
+  [100, 97],
+];
+function minWeekly(goalKm, goal = 'pr') {
+  return Math.round(interpolate(goal === 'finish' ? MIN_PEAK_FINISH : MIN_PEAK_PR, goalKm));
+}
+
 function interpolate(table, x) {
   if (x <= table[0][0]) return table[0][1];
   for (let i = 1; i < table.length; i++) {
@@ -427,6 +457,13 @@ const LATE_ORDER = {
   none: ['threshold', 'tempo', 'racepace'],
   some: ['threshold', 'tempo', 'racepace'],
   lots: ['longhills', 'tempo', 'racepace'],
+};
+
+// Finish plans drop the hardest session (threshold intervals) and keep one steady tempo and one goal-pace rehearsal.
+const LATE_ORDER_FINISH = {
+  none: ['tempo', 'aerobic', 'racepace'],
+  some: ['tempo', 'aerobic', 'racepace'],
+  lots: ['longhills', 'aerobic', 'racepace'],
 };
 
 const r5 = (x) => Math.round(x * 2) / 2; // round to nearest 0.5 km
@@ -564,16 +601,38 @@ function qualitySession(q, paces) {
 const RUN_MIN = { easy: 4, medium: 5, short: 3 }; // shortest sensible run of each kind
 
 // Split the leftover weekly km across the easy/medium/short runs.
-function allocate(roles, vol, longKm, qualityKm) {
+function allocate(roles, vol, longKm, qualityKm, capped = true) {
   const WEIGHT = { easy: 1, medium: 1.25, short: 0.6 };
   const MIN = RUN_MIN;
-  const remaining = vol - longKm - qualityKm;
-  const sumW = roles.reduce((a, r) => a + WEIGHT[r], 0);
-  const out = roles.map((r) => Math.max(MIN[r], r5((remaining * WEIGHT[r]) / sumW)));
-  // Rounding leaves a small gap. Put it in the biggest run so the week adds up.
-  const diff = r5(remaining - out.reduce((a, b) => a + b, 0));
-  const idx = out.indexOf(Math.max(...out));
-  out[idx] = Math.max(MIN[roles[idx]], out[idx] + diff);
+  // No easy run may reach the long run's distance. The long run stays the longest run of the week.
+  const cap = !capped ? Infinity : longKm >= 6 ? r5(longKm - 0.5) : longKm;
+  let remaining = vol - longKm - qualityKm;
+  const out = roles.map((r) => MIN[r]);
+  let free = roles.map((_, i) => i);
+  remaining -= out.reduce((a, b) => a + b, 0);
+  // Hand out the leftover km by weight. A run that hits the cap keeps the cap and the rest is shared again.
+  for (let pass = 0; pass < 6 && remaining > 0.01 && free.length; pass++) {
+    const sumW = free.reduce((a, i) => a + WEIGHT[roles[i]], 0);
+    let used = 0;
+    const next = [];
+    for (const i of free) {
+      const want = r5((remaining * WEIGHT[roles[i]]) / sumW);
+      const room = Math.max(0, cap - out[i]);
+      const add = Math.min(want, room);
+      out[i] += add;
+      used += add;
+      if (out[i] < cap - 0.01) next.push(i);
+    }
+    remaining = r5(remaining - used);
+    free = next;
+    if (used < 0.01) break;
+  }
+  if (!capped && remaining > 0.01) {
+    const idx = out.indexOf(Math.max(...out));
+    out[idx] = r5(out[idx] + remaining);
+    remaining = 0;
+  }
+  out.spill = Math.max(0, remaining);
   return out;
 }
 
@@ -596,6 +655,7 @@ function generatePlan(input, userRules = {}) {
     raceDay = 'Sun', // weekday of the race, in the last week
     trailFactor = 1.1, // trail goal time = road projection x this
     taper = 'auto', // 'auto' | 1 | 2 | 3 weeks, counting the race week
+    goal = 'pr', // 'pr' (race it) | 'finish' (get there comfortably)
   } = input;
 
   const base = TEMPLATES[daysPerWeek];
@@ -639,7 +699,11 @@ function generatePlan(input, userRules = {}) {
 
   // Peak weekly km: by goal distance, limited by runs per week, never below the start.
   // If you give your own peak (input.peakWeeklyKm), that wins over the table.
-  const autoPeak = Math.min(interpolate(PEAK_TABLE, goalKm), daysPerWeek * rules.maxKmPerRun);
+  const autoPeakWanted =
+    goal === 'finish'
+      ? Math.round(minWeekly(goalKm, 'finish') * 1.15)
+      : Math.max(interpolate(PEAK_TABLE, goalKm), minWeekly(goalKm, 'pr'));
+  const autoPeak = Math.min(autoPeakWanted, daysPerWeek * rules.maxKmPerRun);
   const peakTarget = Math.max(input.peakWeeklyKm ?? autoPeak, startKm);
 
   // Growth rate that reaches the peak target by the peak week, capped at +10%.
@@ -695,7 +759,7 @@ function generatePlan(input, userRules = {}) {
     const early = w <= lastBuild * 0.5;
     const order = early
       ? (EARLY_ORDER[hills] ?? EARLY_ORDER.some)
-      : (LATE_ORDER[hills] ?? LATE_ORDER.some);
+      : ((goal === 'finish' ? LATE_ORDER_FINISH : LATE_ORDER)[hills] ?? LATE_ORDER.some);
     const n = early ? earlyN++ : lateN++;
     schedule.push({
       week: w,
@@ -767,7 +831,15 @@ function generatePlan(input, userRules = {}) {
       qualityKm = Math.max(r5(vol * 0.18), ceil5(2 + q.workKm + 1.5));
       if (qualityKm + longKm + minOthers <= vol) break;
     }
-    const alloc = allocate(others, vol, longKm, qualityKm);
+    let alloc = allocate(others, vol, longKm, qualityKm);
+    // Km the easy runs cannot take go to the quality day, up to just under the long run.
+    if (alloc.spill > 0.01) {
+      const room = Math.max(0, (longKm >= 6 ? r5(longKm - 0.5) : longKm) - qualityKm);
+      const moved = Math.min(room, r5(alloc.spill));
+      if (alloc.spill - moved <= 0.01) qualityKm += moved;
+      // The week cannot keep the long run longest without changing its total. Keep the total.
+      else alloc = allocate(others, vol, longKm, qualityKm, false);
+    }
 
     let i = 0;
     const days = template.map((role, d) => {
@@ -798,7 +870,7 @@ function generatePlan(input, userRules = {}) {
     input,
     rules,
     paces,
-    meta: { longShare, taperWeeks, peakTarget, growth, startKm },
+    meta: { longShare, taperWeeks, peakTarget, growth, startKm, goal, reachedPeak: peakVol, minPeak: minWeekly(goalKm, goal) },
     weeks: planWeeks,
   };
 }
@@ -1160,7 +1232,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
 
   var DEFAULTS = {
     goalKm: 50, startDate: isoDate(mondayOnOrAfter(todayLocal())), raceDate: '',
-    days: 5, longDay: 'Sun', terrain: 'road', hills: 'some',
+    goal: 'pr', days: 5, longDay: 'Sun', terrain: 'road', hills: 'some',
     currentKm: 45, peakAuto: false, peakKm: 95,
     refSel: '42.195', refCustom: 42.195, refTime: '4:12:00',
     longShare: 30, downEvery: 4, taper: 'auto', remindTime: '06:30', remindLead: 60
@@ -1212,6 +1284,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     $('goalKm').value = s.goalKm;
     $('startDate').value = s.startDate;
     $('raceDate').value = s.raceDate;
+    seg($('segGoal'), 'goal', [['finish', 'Just finish'], ['pr', 'Beat my best']], s.goal);
     seg($('segDays'), 'days', [[3, '3'], [4, '4'], [5, '5'], [6, '6']], s.days);
     fillSelect($('longDay'), WEEKDAY_OPTS, s.longDay);
     seg($('segTerrain'), 'terrain', [['road', 'Road'], ['trail', 'Trail']], s.terrain);
@@ -1241,6 +1314,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
       startDate: $('startDate').value,
       raceDate: $('raceDate').value,
       raceDay: rd ? DAYS[(rd.getDay() + 6) % 7] : 'Sun',
+      goal: radio('goal') || 'pr',
       days: parseInt(radio('days'), 10),
       longDay: $('longDay').value,
       terrain: radio('terrain'),
@@ -1290,6 +1364,26 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     $('editsHint').hidden = !nEdits;
     $('editsHint').textContent = nEdits ? 'Building a plan clears your ' + nEdits + ' skipped or moved run' + (nEdits === 1 ? '' : 's') + '.' : '';
     $('peakWrap').hidden = $('peakAuto').checked;
+    (function () {
+      var g = parseFloat($('goalKm').value), cur = parseFloat($('currentKm').value), pk = parseFloat($('peakKm').value);
+      var goal = radio('goal') || 'pr', auto = $('peakAuto').checked, msg = [];
+      var wk = NaN, rd0 = parseIso($('raceDate').value), sd0 = parseIso($('startDate').value);
+      if (rd0 && sd0) wk = weeksBetween(mondayOnOrAfter(sd0), rd0);
+      if (g > 0) {
+        var min = minWeekly(g, goal), word = goal === 'finish' ? 'finish' : 'race';
+        msg.push('Research-based minimum peak for ' + (goal === 'finish' ? 'finishing' : 'racing') + ' ' + g + ' km: about ' + min + ' km a week.');
+        if (!auto && pk < min) msg.push('Your peak of ' + Math.round(pk) + ' km is under that. Raise it, or switch the goal to Just finish.');
+        if (g >= 42 && cur < 30) msg.push('Under about 30 km a week, ultramarathon studies link training to more injuries.');
+        if (wk >= 4 && wk <= 40 && cur > 0) {
+          var taper = wk >= 10 ? 3 : wk >= 6 ? 2 : 1, lastBuild = wk - taper, builds = 0;
+          for (var w = 1; w <= lastBuild; w++) if (!(w % 4 === 0 && w < lastBuild)) builds++;
+          var reach = Math.max(cur, parseInt(radio('days') || '5', 10) * 5.5) * Math.pow(1.1, Math.max(0, builds - 1));
+          if (reach < min) msg.push('Adding 10% a week from ' + Math.round(cur) + ' km reaches about ' + Math.round(reach) + ' km by the peak week. Start earlier or pick Just finish to hit the minimum.');
+        }
+      }
+      $('volHint').hidden = !msg.length;
+      $('volHint').textContent = msg.join(' ');
+    })();
     $('refCustomWrap').hidden = $('refDist').value !== 'other';
     var rd = parseIso($('raceDate').value), sd = parseIso($('startDate').value);
     if (rd && sd) {
@@ -1307,7 +1401,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     var input = {
       goalKm: s.goalKm, weeks: s.weeks, daysPerWeek: s.days, currentWeeklyKm: s.currentKm,
       refKm: refKmOf(s), refMin: parseTimeMin(s.refTime),
-      terrain: s.terrain, hills: s.hills, longDay: s.longDay, raceDay: s.raceDay,
+      goal: s.goal || 'pr', terrain: s.terrain, hills: s.hills, longDay: s.longDay, raceDay: s.raceDay,
       taper: s.taper === 'auto' ? 'auto' : parseInt(s.taper, 10)
     };
     if (!s.peakAuto) input.peakWeeklyKm = s.peakKm;
@@ -1347,6 +1441,9 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
       stat(fmtPace(p.threshold), 'threshold /km') +
       stat(fmtPace(p.interval), 'interval /km') +
       '</div>' +
+      (current.plan.meta.reachedPeak < current.plan.meta.minPeak
+        ? '<p class="note"><b>Peak week is ' + Math.round(current.plan.meta.reachedPeak) + ' km, under the ' + current.plan.meta.minPeak + ' km research minimum for this ' + (s.goal === 'finish' ? 'finish' : 'race') + ' goal.</b> More weeks, a higher starting distance or the Just finish goal would close the gap.</p>'
+        : '') +
       '<p class="note">Fitness score (VDOT) ' + p.vdot.toFixed(1) + ', from your reference result. ' +
       (p.isTrail ? 'Paces are road equivalents. On trail, run by effort and expect slower times. ' : '') +
       'Retest with a time trial and update Setup to refresh the paces.</p>' +
@@ -1522,7 +1619,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
   function renderPlan() {
     if (!current) return;
     var s = current.s;
-    $('subline').textContent = s.days + ' days a week, ' + s.hills + ' hills, long run ' + s.longDay + ', race ' + longDate(current.race);
+    $('subline').textContent = (s.goal === 'finish' ? 'Finish plan, ' : 'PR plan, ') + s.days + ' days a week, ' + s.hills + ' hills, long run ' + s.longDay + ', race ' + longDate(current.race);
     $('view-plan').innerHTML = renderSummary() + '<div id="nextHolder">' + renderNext() + '</div>' + renderChart() + renderWeeks() + renderActions() + renderCoros();
   }
 
@@ -1773,8 +1870,8 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
       return chain.then(function () {
         var course = corosCourse(it.day, current.plan.paces, current.s.terrain);
         var sig = JSON.stringify([it.eff, course]), rec = p.pushed[it.orig], date = d8(it.eff);
-        if (rec && rec.date === it.eff && (rec.sig === sig || !rec.id)) { same++; return; }
-        if (rec && rec.date === it.eff) {
+        if (rec && rec.date === it.eff && rec.sig === sig) { same++; return; }
+        if (rec && rec.date === it.eff && rec.id) {
           return callTool('updateScheduledWorkout', { date: date, idInPlan: rec.id, course: course }).then(function (t) {
             rec.sig = sig; rec.name = course.courseName; var nid = parseId(t); if (nid) rec.id = nid;
             updated++; pushSave(p); clog('Updated ' + shortDate(parseIso(it.eff)) + ': ' + course.courseName);
