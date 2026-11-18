@@ -1743,7 +1743,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
   function pushSave(p) { save('runplan.push.v1', p); }
   function d8(iso) { return iso.replace(/-/g, ''); }
   function toolText(res) { return ((res && res.content) || []).map(function (c) { return c.text || ''; }).join('\n'); }
-  function parseId(text) { var m = /idInPlan"?\s*[:=]\s*"?(\d{6,})/.exec(text); return m ? m[1] : ''; }
+  function parseId(text) { var m = /idInPlan"?\s*[:=]\s*"?(\d+)/.exec(text); return m ? m[1] : ''; }
   function callTool(name, args) {
     return mcpInit().then(function () { return mcpRpc('tools/call', { name: name, arguments: args }); }).then(function (res) {
       var t = toolText(res);
