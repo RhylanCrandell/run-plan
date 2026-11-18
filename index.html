@@ -1574,6 +1574,19 @@ function planToText(plan, startMonday, edits = {}) {
     });
   }
 
+  // Copy the definitions of the workout tools, so the exact input formats are known.
+  function corosToolDetails() {
+    clog('Collecting the workout tool details...');
+    return mcpInit().then(function () { return mcpRpc('tools/list', {}); }).then(function (list) {
+      var want = ['createScheduledWorkout', 'createSingleWorkout', 'scheduleWorkout', 'updateScheduledWorkout', 'queryScheduledWorkoutDetails', 'queryTrainingSchedule', 'queryWorkoutDetails', 'updateWorkoutDetails'];
+      var out = (list.tools || []).filter(function (t) { return want.indexOf(t.name) >= 0; })
+        .map(function (t) { return { name: t.name, description: t.description, inputSchema: t.inputSchema }; });
+      var text = JSON.stringify(out, null, 1);
+      clog('Collected ' + out.length + ' tools (' + text.length + ' characters). Paste them into the chat.');
+      copyText(text);
+    });
+  }
+
   function corosHint(e) {
     return /Failed to fetch|NetworkError|Load failed/i.test(e && e.message || '')
       ? '\nThe browser blocked the request. COROS may not allow this step from a web page. Send me this message.' : '';
@@ -1583,6 +1596,7 @@ function planToText(plan, startMonday, edits = {}) {
     if (name === 'connect') run = corosConnect();
     else if (name === 'device') run = corosDevice();
     else if (name === 'diag') run = corosDiagnose();
+    else if (name === 'tools') run = corosToolDetails();
     else if (name === 'copylog') { copyText(corosLog || 'Nothing to copy.'); return; }
     else if (name === 'cancel') { devicePolling = false; deviceInfo = null; rerender(); return; }
     else if (name === 'disconnect') {
@@ -1599,7 +1613,7 @@ function planToText(plan, startMonday, edits = {}) {
     var st = corosState(), connected = !!(st.tokens && (st.tokens.refresh || st.tokens.access));
     var region = st.region || 'us';
     var btns = connected
-      ? '<button class="btn primary" data-coros="diag">Test connection</button><button class="btn" data-coros="disconnect">Disconnect</button>'
+      ? '<button class="btn primary" data-coros="tools">Copy workout tool details</button><button class="btn" data-coros="diag">Test connection</button><button class="btn" data-coros="disconnect">Disconnect</button>'
       : '<button class="btn primary" data-coros="connect">Connect COROS</button><button class="btn" data-coros="device">Connect with a code</button>';
     var dev = deviceInfo
       ? '<p class="note">Open <a href="' + esc(deviceInfo.url) + '" target="_blank" rel="noopener">' + esc(deviceInfo.url) + '</a> and enter the code <b>' + esc(deviceInfo.code) + '</b>. This page checks every few seconds. <button class="linkbtn" data-coros="cancel">Cancel</button></p>' : '';
