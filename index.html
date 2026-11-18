@@ -350,6 +350,20 @@ textarea { min-height: 220px; font: 13px/1.4 ui-monospace, Menlo, monospace; }
       </div>
 
       <div class="card">
+        <h2>Your sync code</h2>
+        <p>A sync code is a personal key to your own plan. It lets you open the same plan on your phone, your laptop, or after you clear your browser. Without it, your plan lives only in the browser where you built it.</p>
+        <ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px">
+          <li><b>Everyone gets their own.</b> Go to Setup, scroll to Sync, and tap Create my sync code. The app makes a new random code on your device. It never matches anyone else's.</li>
+          <li><b>Save it.</b> Put it in your notes or a password manager. If you lose it, your plan still works on the device where you made it, but you cannot open it anywhere else.</li>
+          <li><b>Keep it private.</b> Anyone who has your code can read and change your plan. Never share it, and never ask someone for theirs.</li>
+          <li><b>Use it on a second device.</b> Open the app there, go to Setup, scroll to Sync, type your code under "Already have a code?", and tap Use this code. This replaces the plan on that device with your saved one.</li>
+          <li><b>It saves by itself.</b> A few seconds after you tick a run, skip one, or change your setup, the app saves it. You do not need to press anything.</li>
+        </ul>
+        <p><b>What is saved.</b> Your plan settings, skipped and moved runs, and which runs you finished. Your COROS sign-in is never saved this way. Connect COROS separately on each device.</p>
+        <p><b>Where it lives.</b> Saved plans sit in a small database run by the person who shares this app with you. They can see the saved data, which holds run distances and dates, and no names or emails. Only a scrambled version of your code is stored, so the code itself is not in the database. That database is on a free plan and can pause if nobody uses it for a week. Your plan stays on your device either way, and it syncs again once the database is back.</p>
+      </div>
+
+      <div class="card">
         <h2>Limits</h2>
         <p>This is a planning tool, not a coach or a medical service. Paces are estimates from one race result, so retest with a recent time trial now and then. Stop and see a clinician for sharp or lasting pain. If you miss a week through illness, skip it and carry on. Do not try to make up the distance.</p>
       </div>
@@ -1394,7 +1408,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
     var el = $('syncCard'); if (!el) return;
     var c = syncCfg(), h = '<h2>Sync</h2>', cfgOk = !!(c.url && c.key);
     if (!sync.code) {
-      h += '<p class="note">Your sync code opens your plan on any device. It is yours alone.</p>' +
+      h += '<p class="note">A sync code is your personal key to your own plan, so you can open it on any device. Each person makes their own. Never share yours. The Guide tab explains more.</p>' +
         '<div class="actions"><button type="button" class="btn primary" data-sync="create">Create my sync code</button></div>' +
         '<label class="lbl" for="syncCodeIn" style="margin-top:12px">Already have a code? Enter it</label><input id="syncCodeIn" type="text" autocomplete="off" autocapitalize="characters">' +
         '<div class="actions" style="margin-top:12px"><button type="button" class="btn" data-sync="use">Use this code</button></div>';
