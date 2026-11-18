@@ -1122,7 +1122,18 @@ function planToText(plan, startMonday) {
     return input;
   }
 
+  // weeks and race weekday come from the two dates
+  function derive(s) {
+    var rd = parseIso(s.raceDate), sd = parseIso(s.startDate);
+    if (rd && sd) {
+      s.weeks = weeksBetween(mondayOnOrAfter(sd), rd);
+      s.raceDay = DAYS[(rd.getDay() + 6) % 7];
+    }
+    return s;
+  }
+
   function buildPlan(s) {
+    derive(s);
     var plan = generatePlan(toPlanInput(s), { maxLongShare: s.longShare / 100, downWeekEvery: s.downEvery });
     var startMonday = mondayOnOrAfter(parseIso(s.startDate));
     current = { plan: plan, startMonday: startMonday, race: planDate(startMonday, s.weeks, DAYS.indexOf(s.raceDay)), s: s };
@@ -1354,7 +1365,10 @@ function planToText(plan, startMonday) {
   // ---- start up ----
   $('goalChips').innerHTML = GOAL_CHIPS.map(function (c) { return '<button type="button" class="chip" data-goal="' + c[0] + '">' + c[1] + '</button>'; }).join('');
   writeForm(state);
-  try { buildPlan(state); } catch (ex) { state = Object.assign({}, DEFAULTS); writeForm(state); buildPlan(state); }
+  try { buildPlan(state); } catch (ex) {
+    state = Object.assign({}, DEFAULTS, { raceDate: isoDate(planDate(mondayOnOrAfter(todayLocal()), 16, 6)) });
+    writeForm(state); buildPlan(state);
+  }
   renderPlan();
 })();
 </script>
