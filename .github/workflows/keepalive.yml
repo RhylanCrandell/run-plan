@@ -1,0 +1,19 @@
+name: keep-supabase-awake
+on:
+  schedule:
+    - cron: "17 9 */3 * *"
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call the database
+        env:
+          URL: https://xuqgbzluatvmvdzakkfe.supabase.co
+          KEY: sb_publishable_oE1APoWl2HXBdmoXuPnixA_rPsrWUtl
+        run: |
+          ID=$(printf '0%.0s' $(seq 1 64))
+          if [[ "$KEY" == eyJ* ]]; then AUTH="Authorization: Bearer $KEY"; else AUTH="X-Noop: 1"; fi
+          curl -sS --fail -X POST "$URL/rest/v1/rpc/get_plan" \
+            -H "apikey: $KEY" -H "$AUTH" -H "Content-Type: application/json" \
+            -d "{\"p_id\":\"$ID\"}"
