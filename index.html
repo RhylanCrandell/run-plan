@@ -1271,7 +1271,7 @@ const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0'
   var sync = Object.assign({ url: '', key: '', code: '', last: '', dirty: 0 }, load('runplan.sync.v1', {}));
   var syncMsg = '', syncTimer = null, syncBusy = false;
   function syncStore() { try { localStorage.setItem('runplan.sync.v1', JSON.stringify(sync)); } catch (e) {} }
-  function syncCfg() { return { url: (SYNC_URL || sync.url || '').replace(/\/+$/, ''), key: SYNC_KEY || sync.key || '' }; }
+  function syncCfg() { return { url: (SYNC_URL || sync.url || '').trim().replace(/\/+$/, '').replace(/\/rest\/v1$/, ''), key: SYNC_KEY || sync.key || '' }; }
   function syncReady() { var c = syncCfg(); return !!(c.url && c.key && sync.code); }
   var B32 = '0123456789ABCDEFGHJKMNPQRSTVWXYZ';
   function newCode() {
